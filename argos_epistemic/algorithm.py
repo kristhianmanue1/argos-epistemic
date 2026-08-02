@@ -485,16 +485,44 @@ def _confidence_for(method: str) -> float:
     return 0.6
 
 
+def min_sources_met(
+    propositions: PropositionStore,
+    aspects: list[dict[str, Any]],
+    min_sources: int,
+) -> bool:
+    """Every required aspect has >= min_sources distinct supporting propositions.
+
+    Structural anti-overconfidence (complements corroboration): an aspect is not
+    'done' until it rests on multiple independent sources, regardless of the
+    surrogate coverage number. This avoids declaring complete after 1-2
+    multi-aspect artifacts and is epistemically defensible (don't rest a
+    conclusion on a single source) rather than overfitting theta to gold.
+    """
+    if not aspects or min_sources <= 0:
+        return True
+    by_aspect: dict[str, set[str]] = {}
+    for prop in propositions:
+        if prop.polarity > 0:
+            by_aspect.setdefault(prop.aspect, set()).add(prop.evidence_id)
+    return all(len(by_aspect.get(a["name"], set())) >= min_sources for a in aspects)
+
+
 def should_stop(
     coverage: float,
     residual_risk: float,
     conflicts: ConflictStore,
     goal: dict[str, Any],
     budget: Budget,
+    breadth_ok: bool = True,
 ) -> bool:
     theta = goal.get("theta_coverage", budget.theta_coverage)
     rho = goal.get("rho_risk", budget.rho_risk)
-    if coverage >= theta and residual_risk <= rho and not conflicts.critical():
+    if (
+        coverage >= theta
+        and residual_risk <= rho
+        and not conflicts.critical()
+        and breadth_ok
+    ):
         return True
     return False
 
@@ -847,7 +875,8 @@ def synthesize_report(
         "complete": coverage >= goal.get("theta_coverage", budget.theta_coverage)
         and residual_risk <= goal.get("rho_risk", budget.rho_risk)
         and not any(p.polarity < 0 for p in propositions)
-        and not conflicts.critical(),
+        and not conflicts.critical()
+        and min_sources_met(propositions, aspects, int(goal.get("min_sources_per_aspect", 2))),
     }
 
 
@@ -860,6 +889,7 @@ def analyze_system(system: dict[str, Any], goal: dict[str, Any], budget: Budget,
     aspect_names = [a["name"] for a in required_aspects]
     enabled_nf = select_non_functional_extractors(goal)
     linker = goal.get("aspect_linker") or _default_linker
+    min_sources = int(goal.get("min_sources_per_aspect", 2))
     coverage = 0.0
     residual_risk = 1.0
     cost_estimated = 0
@@ -867,7 +897,8 @@ def analyze_system(system: dict[str, Any], goal: dict[str, Any], budget: Budget,
     while budget.has_capacity():
         coverage = compute_coverage(propositions, required_aspects, goal.get("corroboration", CORROBORATION))
         residual_risk = compute_residual_risk(propositions, required_aspects, goal)
-        if should_stop(coverage, residual_risk, conflicts, goal, budget):
+        breadth_ok = min_sources_met(propositions, required_aspects, min_sources)
+        if should_stop(coverage, residual_risk, conflicts, goal, budget, breadth_ok):
             break
         actions = generate_candidate_actions(system, goal, evidence, beliefs, conflicts, enabled_nf)
         eligible = [
