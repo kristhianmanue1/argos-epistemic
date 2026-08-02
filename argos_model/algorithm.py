@@ -1,0 +1,421 @@
+"""Implementacion de referencia ejecutable del algoritmo de la seccion 22.
+
+Es una version minima, funcional y terminante del esqueleto declarativo de
+``readme.md``. No es una implementacion optimizada del modelo completo: expone
+los tipos y el flujo principal para que puedan ejecutarse pruebas de humo y
+verificar que el algoritmo termina, decide y sintetiza un reporte trazable.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Callable, Iterable
+
+
+@dataclass
+class Cost:
+    tokens: int = 0
+    tool: int = 0
+    latency: float = 0.0
+    compute: float = 0.0
+
+    def dominates(self, other: "Cost") -> bool:
+        return (
+            self.tokens <= other.tokens
+            and self.tool <= other.tool
+            and self.latency <= other.latency
+            and self.compute <= other.compute
+        )
+
+
+@dataclass
+class Budget:
+    tokens_remaining: int
+    tool_remaining: int
+    latency_remaining: float = float("inf")
+    compute_remaining: float = float("inf")
+    theta_coverage: float = 0.95
+    rho_risk: float = 0.05
+
+    def has_capacity(self) -> bool:
+        return self.tokens_remaining > 0 and self.tool_remaining > 0
+
+    def can_afford(self, cost: Cost) -> bool:
+        return (
+            cost.tokens <= self.tokens_remaining
+            and cost.tool <= self.tool_remaining
+            and cost.latency <= self.latency_remaining
+            and cost.compute <= self.compute_remaining
+        )
+
+    def consume(self, cost: Cost) -> None:
+        self.tokens_remaining -= cost.tokens
+        self.tool_remaining -= cost.tool
+        self.latency_remaining -= cost.latency
+        self.compute_remaining -= cost.compute
+
+
+@dataclass
+class Evidence:
+    id: str
+    content: Any
+    kind: str
+    source: str
+    location: str
+    level: int
+    timestamp: int = 0
+
+
+@dataclass
+class Verification:
+    confidence: float
+    status: str
+    provenance: str
+    method: str
+    timestamp: int = 0
+
+
+class EvidenceStore:
+    def __init__(self) -> None:
+        self._items: list[Evidence] = []
+
+    def __iter__(self) -> Iterable[Evidence]:
+        return iter(self._items)
+
+    def __len__(self) -> int:
+        return len(self._items)
+
+    def add(self, evidence: Evidence) -> None:
+        if not any(item.id == evidence.id for item in self._items):
+            self._items.append(evidence)
+
+    def has(self, evidence_id: str) -> bool:
+        return any(item.id == evidence_id for item in self._items)
+
+    def levels(self) -> set[int]:
+        return {item.level for item in self._items}
+
+    def compress(self, budget: Budget, preserve_provenance: bool, preserve_invariants) -> None:
+        pass
+
+
+@dataclass
+class Belief:
+    claim: str
+    confidence: float
+    status: str
+    provenance: str
+    dependencies: tuple[str, ...] = ()
+
+
+class BeliefStore:
+    def __init__(self) -> None:
+        self._items: list[Belief] = []
+
+    def __iter__(self) -> Iterable[Belief]:
+        return iter(self._items)
+
+    def __len__(self) -> int:
+        return len(self._items)
+
+    def update(self, new_evidence: Evidence, verification: Verification, goal: str) -> None:
+        claim = f"{new_evidence.kind}@{new_evidence.location} observado para '{goal}'"
+        self._items.append(
+            Belief(
+                claim=claim,
+                confidence=verification.confidence,
+                status=verification.status,
+                provenance=verification.provenance,
+                dependencies=(new_evidence.id,),
+            )
+        )
+
+
+@dataclass
+class Conflict:
+    claim: str
+    evidence_for: tuple[str, ...]
+    evidence_against: tuple[str, ...]
+    scope: str
+    severity: float
+    resolution_status: str = "open"
+
+
+class ConflictStore:
+    def __init__(self) -> None:
+        self._items: list[Conflict] = []
+
+    def __iter__(self) -> Iterable[Conflict]:
+        return iter(self._items)
+
+    def __len__(self) -> int:
+        return len(self._items)
+
+    def merge(self, conflicts: list[Conflict]) -> None:
+        for conflict in conflicts:
+            self._items.append(conflict)
+
+    def critical(self) -> list[Conflict]:
+        return [c for c in self._items if c.severity >= 0.8 and c.resolution_status != "resolved"]
+
+
+@dataclass
+class ActionResult:
+    evidence: Evidence
+    verification: Verification
+    actual_cost: Cost
+
+
+@dataclass
+class Action:
+    name: str
+    target_id: str
+    level: int
+    estimated_cost: Cost
+    verification_method: str
+    prerequisites: tuple[str, ...] = ()
+    expected_delta_coverage: float = 0.1
+    expected_delta_confidence: float = 0.1
+    expected_delta_risk_reduction: float = 0.1
+
+
+def derive_goal_aspects(goal: dict[str, Any]) -> list[dict[str, Any]]:
+    aspects = []
+    for raw in goal.get("aspects", []):
+        if isinstance(raw, str):
+            aspects.append({"name": raw, "weight": 1.0 / max(len(goal["aspects"]), 1)})
+        else:
+            aspects.append(raw)
+    total = sum(a["weight"] for a in aspects) or 1.0
+    for aspect in aspects:
+        aspect["weight"] = aspect["weight"] / total
+    return aspects
+
+
+def select_non_functional_extractors(goal: dict[str, Any]) -> list[str]:
+    return list(goal.get("non_functional", []))
+
+
+def compute_coverage(
+    evidence: EvidenceStore,
+    beliefs: BeliefStore,
+    aspects: list[dict[str, Any]],
+) -> float:
+    if not aspects:
+        return 0.0
+    supported_confidence = sum(b.confidence for b in beliefs if b.status == "supported")
+    weak_confidence = sum(b.confidence for b in beliefs if b.status == "weak") * 0.5
+    return min(1.0, (supported_confidence + weak_confidence) / len(aspects))
+
+
+def compute_residual_risk(
+    evidence: EvidenceStore,
+    beliefs: BeliefStore,
+    goal: dict[str, Any],
+) -> float:
+    if not beliefs:
+        return 1.0
+    avg_confidence = sum(b.confidence for b in beliefs) / len(beliefs)
+    unknown_share = sum(1 for b in beliefs if b.status == "unknown") / len(beliefs)
+    return max(0.0, min(1.0, (1.0 - avg_confidence) * 0.7 + unknown_share * 0.3))
+
+
+def should_stop(
+    coverage: float,
+    residual_risk: float,
+    conflicts: ConflictStore,
+    goal: dict[str, Any],
+    budget: Budget,
+) -> bool:
+    theta = goal.get("theta_coverage", budget.theta_coverage)
+    rho = goal.get("rho_risk", budget.rho_risk)
+    if coverage >= theta and residual_risk <= rho and not conflicts.critical():
+        return True
+    return False
+
+
+def prerequisites_satisfied(action: Action, evidence: EvidenceStore, beliefs: BeliefStore) -> bool:
+    return all(evidence.has(prereq) or any(prereq == b.claim for b in beliefs) for prereq in action.prerequisites)
+
+
+def generate_candidate_actions(
+    system: dict[str, Any],
+    goal: dict[str, Any],
+    evidence: EvidenceStore,
+    beliefs: BeliefStore,
+    conflicts: ConflictStore,
+    enabled_nf: list[str],
+) -> list[Action]:
+    actions: list[Action] = []
+    for artifact in system.get("artifacts", []):
+        if evidence.has(artifact["id"]):
+            continue
+        actions.append(
+            Action(
+                name=f"extract_L{artifact['level']}",
+                target_id=artifact["id"],
+                level=artifact["level"],
+                estimated_cost=Cost(tokens=int(50 * artifact.get("relevance", 1.0)), tool=1),
+                verification_method="deterministic" if artifact["level"] <= 2 else "symbolic",
+                prerequisites=tuple(artifact.get("prerequisites", [])),
+                expected_delta_coverage=artifact.get("relevance", 0.1) * 0.2,
+                expected_delta_confidence=0.2,
+                expected_delta_risk_reduction=0.15,
+            )
+        )
+    return actions
+
+
+def expected_utility(
+    action: Action,
+    goal: dict[str, Any],
+    evidence: EvidenceStore,
+    beliefs: BeliefStore,
+    budget: Budget,
+) -> float:
+    alpha = goal.get("alpha", 0.4)
+    beta = goal.get("beta", 0.3)
+    gamma = goal.get("gamma", 0.3)
+    value = (
+        alpha * action.expected_delta_coverage
+        + beta * action.expected_delta_confidence
+        + gamma * action.expected_delta_risk_reduction
+    )
+    cost_weight = max(action.estimated_cost.tokens, 1) + max(action.estimated_cost.tool, 1)
+    return value / cost_weight
+
+
+def execute_action(action: Action, system: dict[str, Any]) -> ActionResult:
+    artifact = next(a for a in system["artifacts"] if a["id"] == action.target_id)
+    evidence = Evidence(
+        id=artifact["id"],
+        content=artifact["content"],
+        kind=artifact.get("kind", "artifact"),
+        source=artifact.get("source", "disk"),
+        location=artifact["id"],
+        level=artifact["level"],
+        timestamp=artifact.get("timestamp", 0),
+    )
+    confidence = 0.9 if action.verification_method == "deterministic" else 0.6
+    status = "supported" if confidence >= 0.7 else "weak"
+    verification = Verification(
+        confidence=confidence,
+        status=status,
+        provenance=artifact["id"],
+        method=action.verification_method,
+        timestamp=evidence.timestamp,
+    )
+    return ActionResult(evidence=evidence, verification=verification, actual_cost=action.estimated_cost)
+
+
+def normalize_evidence(result: ActionResult) -> Evidence:
+    return result.evidence
+
+
+def verify_evidence(
+    evidence: Evidence,
+    method: str,
+    system: dict[str, Any],
+) -> Verification:
+    return Verification(
+        confidence=0.9 if method == "deterministic" else 0.6,
+        status="supported" if method == "deterministic" else "weak",
+        provenance=evidence.id,
+        method=method,
+        timestamp=evidence.timestamp,
+    )
+
+
+def detect_conflicts(evidence: EvidenceStore, beliefs: BeliefStore) -> list[Conflict]:
+    return []
+
+
+def synthesize_report(
+    system: dict[str, Any],
+    goal: dict[str, Any],
+    evidence: EvidenceStore,
+    beliefs: BeliefStore,
+    conflicts: ConflictStore,
+    coverage: float,
+    residual_risk: float,
+    budget: Budget,
+) -> dict[str, Any]:
+    return {
+        "system": system.get("name"),
+        "goal": goal.get("name"),
+        "evidence_count": len(evidence),
+        "belief_count": len(beliefs),
+        "conflict_count": len(conflicts),
+        "coverage": round(coverage, 4),
+        "residual_risk": round(residual_risk, 4),
+        "budget_remaining": {
+            "tokens": budget.tokens_remaining,
+            "tool": budget.tool_remaining,
+        },
+        "levels_covered": sorted(evidence.levels()),
+        "conclusions": [
+            {"claim": b.claim, "confidence": b.confidence, "status": b.status}
+            for b in beliefs
+        ],
+        "complete": coverage >= goal.get("theta_coverage", budget.theta_coverage)
+        and residual_risk <= goal.get("rho_risk", budget.rho_risk),
+    }
+
+
+def analyze_system(system: dict[str, Any], goal: dict[str, Any], budget: Budget, policy: dict[str, Any] | None = None) -> dict[str, Any]:
+    evidence = EvidenceStore()
+    beliefs = BeliefStore()
+    conflicts = ConflictStore()
+    required_aspects = derive_goal_aspects(goal)
+    enabled_nf = select_non_functional_extractors(goal)
+    coverage = 0.0
+    residual_risk = 1.0
+    while budget.has_capacity():
+        coverage = compute_coverage(evidence, beliefs, required_aspects)
+        residual_risk = compute_residual_risk(evidence, beliefs, goal)
+        if should_stop(coverage, residual_risk, conflicts, goal, budget):
+            break
+        actions = generate_candidate_actions(system, goal, evidence, beliefs, conflicts, enabled_nf)
+        eligible = [
+            action
+            for action in actions
+            if prerequisites_satisfied(action, evidence, beliefs) and budget.can_afford(action.estimated_cost)
+        ]
+        if not eligible:
+            break
+        action = max(
+            eligible,
+            key=lambda candidate: expected_utility(candidate, goal, evidence, beliefs, budget),
+        )
+        result = execute_action(action, system)
+        budget.consume(result.actual_cost)
+        new_evidence = normalize_evidence(result)
+        evidence.add(new_evidence)
+        verification = verify_evidence(new_evidence, action.verification_method, system)
+        beliefs.update(new_evidence, verification, goal["name"])
+        conflicts.merge(detect_conflicts(evidence, beliefs))
+        evidence.compress(budget, preserve_provenance=True, preserve_invariants=required_aspects)
+    return synthesize_report(system, goal, evidence, beliefs, conflicts, coverage, residual_risk, budget)
+
+
+def run(system: dict[str, Any] | None = None, goal: dict[str, Any] | None = None, budget: Budget | None = None) -> dict[str, Any]:
+    if system is None:
+        system = {
+            "name": "argos",
+            "artifacts": [
+                {"id": "readme.md", "content": "Modelo Epistemico Unificado", "level": 0, "relevance": 1.0, "kind": "doc"},
+                {"id": "pyproject.toml", "content": "build manifest", "level": 2, "relevance": 0.6, "kind": "config"},
+                {"id": "argos_model/algorithm.py", "content": "reference impl", "level": 4, "relevance": 0.8, "kind": "code"},
+            ],
+        }
+    if goal is None:
+        goal = {
+            "name": "autoanalisis",
+            "aspects": ["proposito", "estructura", "entorno", "contratos", "comportamiento"],
+            "non_functional": ["sec"],
+            "theta_coverage": 0.8,
+            "rho_risk": 0.3,
+        }
+    if budget is None:
+        budget = Budget(tokens_remaining=10000, tool_remaining=50)
+    return analyze_system(system, goal, budget)

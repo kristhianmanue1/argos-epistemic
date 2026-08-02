@@ -22,46 +22,46 @@ El sistema debe analizarse como una combinación de:
 * estado dinámico;
 * propiedades no funcionales.
 Por tanto:
-[
+$$
 M(S,G)\neq parsing(código(S))
-]
+$$
 sino:
-[
+$$
 M(S,G)=síntesis(evidencia,\ inferencias,\ verificación,\ objetivo)
-]
+$$
 ---
 ## 2.2 La IA nunca observa el sistema completo
 Sea (S) el sistema real:
-[
+$$
 \Sigma(S,t)=\text{espacio total de evidencia del sistema en }t
-]
+$$
 La IA únicamente puede acceder a una fracción observable:
-[
+$$
 \Sigma_{\mathrm{obs}}(S,t)\subseteq\Sigma(S,t)
-]
+$$
 La diferencia:
-[
+$$
 \Sigma(S,t)\setminus\Sigma_{\mathrm{obs}}(S,t)
-]
+$$
 representa evidencia ausente, inaccesible, no instrumentada, eliminada o desconocida.
 Por consiguiente, toda conclusión debe considerarse relativa a:
-[
+$$
 \Sigma_{\mathrm{obs}}(S,t)
-]
+$$
 y no al sistema completo.
 ---
 ## 2.3 Todo análisis está condicionado por un objetivo
 Sea:
-[
+$$
 G=\text{objetivo del análisis}
-]
+$$
 Ejemplos:
-[
+$$
 G\in
 {
 debugging,\ auditoría,\ refactorización,\ migración,\ seguridad,\ rendimiento,\ documentación
 }
-]
+$$
 El objetivo determina:
 * qué evidencia es relevante;
 * qué profundidad es necesaria;
@@ -73,7 +73,7 @@ No existe un contexto universalmente óptimo. Existe un contexto óptimo condici
 ---
 # 3. Presupuesto operativo multidimensional
 El agente opera bajo un presupuesto:
-[
+$$
 K=
 (
 K_{\mathrm{tokens}},
@@ -81,14 +81,14 @@ K_{\mathrm{tool}},
 K_{\mathrm{latency}},
 K_{\mathrm{compute}}
 )
-]
+$$
 donde:
 * (K_{\mathrm{tokens}}): capacidad de contexto y generación;
 * (K_{\mathrm{tool}}): número o costo de llamadas a herramientas;
 * (K_{\mathrm{latency}}): tiempo máximo admisible;
 * (K_{\mathrm{compute}}): capacidad de ejecución, indexación o análisis.
 El costo de una acción (a) se expresa como:
-[
+$$
 Cost(a)=
 (
 c_{\mathrm{tokens}},
@@ -96,22 +96,22 @@ c_{\mathrm{tool}},
 c_{\mathrm{latency}},
 c_{\mathrm{compute}}
 )
-]
+$$
 Una acción es factible cuando:
-[
+$$
 Cost(a)\preceq K_{\mathrm{remaining}}
-]
+$$
 La relación (\preceq) se evalúa componente por componente.
 ---
 # 4. Niveles de extracción de evidencia
 Se define una familia de extractores:
-[
+$$
 L_n:S,t\rightarrow\Sigma_n\subseteq\Sigma_{\mathrm{obs}}(S,t)
-]
+$$
 para:
-[
+$$
 n\in{0,1,2,3,4,5}
-]
+$$
 ## (L_0): intención declarada
 Lee:
 * README;
@@ -122,12 +122,12 @@ Lee:
 * diagramas declarados;
 * guías de operación.
 Produce:
-[
+$$
 \Sigma_0=
 {
 propósito,\ dominio,\ usuarios,\ restricciones,\ decisiones\ declaradas
 }
-]
+$$
 La evidencia de (L_0) no constituye verdad del sistema. Constituye una colección inicial de afirmaciones e hipótesis declaradas.
 ---
 ## (L_1): topología estructural
@@ -140,12 +140,12 @@ Lee:
 * workspaces;
 * relaciones entre componentes.
 Produce:
-[
+$$
 \Sigma_1=
 {
 grafo\ topológico,\ límites,\ módulos,\ relaciones\ estructurales
 }
-]
+$$
 La salida debe representarse como grafo, no como listado plano de archivos.
 ---
 ## (L_2): entorno reproducible y configuración
@@ -159,17 +159,17 @@ Lee:
 * plantillas de entorno;
 * infraestructura como código.
 Produce:
-[
+$$
 \Sigma_2=
 {
 stack,\ versiones,\ configuración,\ proceso\ de\ build,\ entorno\ declarado
 }
-]
+$$
 (L_2) es fuente primaria para el estado declarado o reproducible, pero no es necesariamente fuente de verdad del estado desplegado.
 Debe contrastarse con:
-[
+$$
 build,\ image,\ deployment,\ runtime
-]
+$$
 ---
 ## (L_3): puntos de entrada y contratos
 Lee:
@@ -185,12 +185,12 @@ Lee:
 * tipos públicos;
 * interfaces.
 Produce:
-[
+$$
 \Sigma_3=
 {
 grafo\ inicial\ de\ control,\ contratos,\ vocabulario,\ fronteras
 }
-]
+$$
 Este nivel permite estimar:
 * flujos;
 * dependencias;
@@ -210,12 +210,12 @@ Lee:
 * rutas alternativas;
 * pruebas relevantes.
 Produce:
-[
+$$
 \Sigma_4=
 {
 invariantes,\ reglas,\ estados,\ efectos,\ excepciones,\ comportamiento
 }
-]
+$$
 Debe distinguirse entre:
 * comportamiento declarado;
 * comportamiento implementado;
@@ -237,17 +237,17 @@ Lee o ejecuta:
 * imágenes activas;
 * configuración efectiva.
 Produce:
-[
+$$
 \Sigma_5=
 {
 comportamiento\ observado,\ estado\ desplegado,\ historia,\ fallos,\ concurrencia
 }
-]
+$$
 Aunque (L_5) suele activarse después de los niveles estructurales, puede invocarse anticipadamente cuando el objetivo (G) exige evidencia dinámica inmediata.
 ---
 # 5. Extractores no funcionales transversales
 Las propiedades no funcionales no constituyen un nivel (L_6). Son dimensiones transversales:
-[
+$$
 L_{\mathrm{NF}}=
 {
 L_{\mathrm{sec}},
@@ -257,9 +257,9 @@ L_{\mathrm{reliability}},
 L_{\mathrm{compliance}},
 L_{\mathrm{operability}}
 }
-]
+$$
 Su activación depende de (G):
-[
+$$
 L_{\mathrm{NF}}^*(S,G)
 ======================
 {
@@ -267,41 +267,41 @@ L_{\mathrm{NF}}^i(S)
 \mid
 R(L_{\mathrm{NF}}^i\mid G)>\tau_{\mathrm{NF}}
 }
-]
+$$
 Ejemplos:
-[
+$$
 G=\text{auditoría de software médico}
-]
+$$
 activa preferentemente:
-[
+$$
 L_{\mathrm{sec}},
 L_{\mathrm{privacy}},
 L_{\mathrm{compliance}},
 L_{\mathrm{reliability}}
-]
+$$
 mientras que:
-[
+$$
 G=\text{reducción de latencia}
-]
+$$
 activa:
-[
+$$
 L_{\mathrm{perf}},
 L_{\mathrm{reliability}},
 L_{\mathrm{operability}}
-]
+$$
 La evidencia no funcional se mantiene inicialmente en un canal separado:
-[
+$$
 E_{\mathrm{NF}}
-]
+$$
 y se fusiona con el contexto general únicamente cuando aporta valor al objetivo.
 ---
 # 6. Relevancia computable
 Cada unidad de evidencia (x) recibe una puntuación:
-[
+$$
 R(x\mid G)\in[0,1]
-]
+$$
 Una aproximación operativa es:
-[
+$$
 R(x\mid G)=
 \alpha S_{\mathrm{semantic}}(x,G)
 +
@@ -312,7 +312,7 @@ R(x\mid G)=
 \eta Risk(x,G)
 +
 \mu Freshness(x)
-]
+$$
 donde:
 * (S_{\mathrm{semantic}}): similitud entre evidencia y objetivo;
 * (Impact): radio de impacto probable;
@@ -320,18 +320,18 @@ donde:
 * (Risk): severidad asociada al artefacto;
 * (Freshness): vigencia temporal de la evidencia.
 Con:
-[
+$$
 \alpha+\beta+\gamma+\eta+\mu=1
-]
+$$
 El extractor filtrado queda definido como:
-[
+$$
 L_n^*(S,G,t)=
 {
 x\in L_n(S,t)
 \mid
 R(x\mid G)\geq\tau_n
 }
-]
+$$
 El umbral (\tau_n) puede determinarse mediante:
 * percentil de relevancia;
 * presupuesto restante;
@@ -344,12 +344,12 @@ Cuando el presupuesto disminuye, (\tau_n) puede aumentar para hacer la selecció
 # 7. Separación entre evidencia e inferencia
 El modelo debe separar obligatoriamente dos estados.
 ## 7.1 Estado de evidencia
-[
+$$
 E(n)
-]
+$$
 contiene únicamente unidades observadas o derivadas mediante herramientas verificables.
 Cada unidad se representa como:
-[
+$$
 e_i=
 (
 contenido_i,
@@ -359,12 +359,12 @@ localización_i,
 timestamp_i,
 nivel_i
 )
-]
+$$
 ---
 ## 7.2 Estado de creencias
-[
+$$
 B(n)
-]
+$$
 contiene:
 * hipótesis;
 * inferencias;
@@ -373,7 +373,7 @@ contiene:
 * contradicciones;
 * preguntas abiertas.
 Cada creencia se representa como:
-[
+$$
 b_i=
 (
 claim_i,
@@ -382,25 +382,25 @@ status_i,
 provenance_i,
 dependencies_i
 )
-]
+$$
 La actualización del estado de creencias se define como:
-[
+$$
 B(n+1)=Update(B(n),E(n+1),V,G)
-]
+$$
 Las inferencias nunca deben reingresar al conjunto de evidencia como si fueran observaciones.
 ---
 # 8. Compresión con pérdida controlada
 La función de compresión opera sobre evidencia, no sobre creencias indistintamente:
-[
+$$
 E_c(n)=
 \phi_E
 \left(
 E_c(n-1)\cup L_n^*(S,G,t),
 K
 \right)
-]
+$$
 La salida de (\phi_E) debe preservar trazabilidad:
-[
+$$
 \phi_E(x)=
 (
 summary(x),
@@ -408,7 +408,7 @@ provenance(x),
 verification(x),
 loss(x)
 )
-]
+$$
 ## 8.1 Invariantes obligatorios de compresión
 Toda política de compresión debe preservar:
 1. puntos de entrada;
@@ -423,15 +423,15 @@ Toda política de compresión debe preservar:
 10. estado temporal de la evidencia.
 Una compresión es inválida cuando elimina información necesaria para verificar una conclusión vigente.
 Formalmente, para un conjunto de invariantes (Q_G):
-[
+$$
 Q_G(E)=Q_G(\phi_E(E))
-]
+$$
 La compresión puede perder detalle sintáctico, pero no debe perder propiedades críticas condicionadas al objetivo.
 ---
 # 9. Verificación epistémica
 La verificación no debe representarse únicamente como un escalar.
 Se define:
-[
+$$
 V(x,\Sigma_{\mathrm{obs}})
 ==========================
 (
@@ -441,7 +441,7 @@ P_x,
 m_x,
 t_x
 )
-]
+$$
 donde:
 * (c_x\in[0,1]): confianza;
 * (s_x): estado epistémico;
@@ -449,7 +449,7 @@ donde:
 * (m_x): método de verificación;
 * (t_x): instante o vigencia.
 Los estados posibles son:
-[
+$$
 s_x\in
 {
 supported,
@@ -458,7 +458,7 @@ unknown,
 conflicted,
 contradicted
 }
-]
+$$
 ## 9.1 Tipos de verificación
 ### Determinista
 Adecuada para:
@@ -517,30 +517,30 @@ Herramientas:
 ---
 # 10. Propagación de confianza
 Si una conclusión (b) depende de evidencias o hipótesis previas:
-[
+$$
 Dep(b)={d_1,d_2,\dots,d_m}
-]
+$$
 su confianza no puede exceder la de sus dependencias críticas.
 Una política conservadora es:
-[
+$$
 Conf(b)\leq
 \min_{d_i\in Dep(b)} Conf(d_i)
-]
+$$
 Una política ponderada puede ser:
-[
+$$
 Conf(b)=
 V_{\mathrm{direct}}(b)
 \cdot
 \prod_{d_i\in Dep(b)}
 Conf(d_i)^{w_i}
-]
+$$
 donde:
-[
+$$
 \sum_iw_i=1
-]
+$$
 Las afirmaciones provenientes de (L_0) se mantienen como hipótesis declaradas hasta ser contrastadas con (L_1), (L_2), (L_3), (L_4) o (L_5).
 La validación de intención puede expresarse como:
-[
+$$
 V_0(x)=
 \alpha V_{\mathrm{docs\leftrightarrow topology}}
 +
@@ -549,13 +549,13 @@ V_0(x)=
 \gamma V_{\mathrm{docs\leftrightarrow behavior}}
 +
 \eta V_{\mathrm{docs\leftrightarrow runtime}}
-]
+$$
 Los pesos dependen de (G).
 ---
 # 11. Contradicciones
 Una contradicción no equivale a falta de evidencia.
 Se define un registro:
-[
+$$
 Conflict=
 (
 claim,
@@ -565,7 +565,7 @@ scope,
 severity,
 resolutionStatus
 )
-]
+$$
 El sistema debe distinguir entre:
 * evidencia ausente;
 * evidencia insuficiente;
@@ -576,9 +576,9 @@ El sistema debe distinguir entre:
 * contradicción entre contrato e implementación;
 * contradicción entre implementación y ejecución.
 Si:
-[
+$$
 s_x=conflicted
-]
+$$
 el agente no debe elegir silenciosamente una fuente. Debe:
 1. conservar ambas evidencias;
 2. identificar su alcance temporal y ambiental;
@@ -588,18 +588,18 @@ el agente no debe elegir silenciosamente una fuente. Debe:
 # 12. Cobertura semántica
 La cobertura permite determinar si el contexto acumulado es suficiente.
 Sea (T_G) el conjunto de aspectos requeridos por el objetivo:
-[
+$$
 T_G=
 {
 t_1,t_2,\dots,t_m
 }
-]
+$$
 Cada aspecto tiene un peso:
-[
+$$
 w_i,\qquad\sum_iw_i=1
-]
+$$
 La cobertura se define como:
-[
+$$
 Cov(E,B,G)=
 \sum_{i=1}^{m}
 w_i
@@ -607,13 +607,13 @@ w_i
 Coverage(t_i)
 \cdot
 Confidence(t_i)
-]
+$$
 con:
-[
+$$
 Cov(E,B,G)\in[0,1]
-]
+$$
 Una alternativa basada en evidencia es:
-[
+$$
 Cov(E,G)=
 \frac{
 \sum_{x\in E}
@@ -622,13 +622,13 @@ R(x\mid G)\cdot Conf(x)
 \sum_{y\in Candidate(G)}
 R(y\mid G)
 }
-]
+$$
 Esta segunda expresión solo es computable cuando existe una aproximación razonable del conjunto candidato.
 Por tanto, para implementación se recomienda la cobertura por aspectos (T_G), ya que no presupone conocer toda la evidencia posible.
 ---
 # 13. Riesgo de error por omisión
 El riesgo asociado a la ausencia de un nivel se expresa como:
-[
+$$
 H(n\mid G)=
 P
 \left(
@@ -638,12 +638,12 @@ L_n^*\not\subseteq E,
 L_{<n}\subseteq E,
 G
 \right)
-]
+$$
 Sin embargo, el riesgo real debe incluir severidad:
-[
+$$
 Risk_n=
 P(error_n)\cdot Severity(error_n)
-]
+$$
 Esto corrige el problema de (L_5):
 * algunos fallos dinámicos tienen baja frecuencia;
 * su severidad puede ser crítica.
@@ -652,31 +652,31 @@ Por tanto, un nivel con baja probabilidad de aportar evidencia puede seguir sien
 # 14. Temporalidad y frescura
 Todos los niveles pueden evolucionar, aunque con tasas diferentes.
 Se define:
-[
+$$
 L_n(S,t)
-]
+$$
 y una tasa estimada de cambio:
-[
+$$
 \lambda_n=
 \text{frecuencia esperada de cambio de }L_n
-]
+$$
 Una configuración típica es:
-[
+$$
 \lambda_0<\lambda_1<\lambda_2\approx\lambda_4<\lambda_3<\lambda_5
-]
+$$
 Esta relación no es universal; depende del sistema.
 La frescura de una evidencia puede calcularse como:
-[
+$$
 Freshness(x,t)=
 e^{-\lambda_n(t-t_x)}
-]
+$$
 donde (t_x) es el instante de observación.
 Así, la temporalidad no infla toda la formalización, pero sí afecta la vigencia y la relevancia de cada evidencia.
 ---
 # 15. Acciones elegibles y precedencia
 La jerarquía (L_0\rightarrow L_5) no debe modelarse como una restricción absoluta.
 En su lugar, se define un conjunto de acciones:
-[
+$$
 A=
 {
 extract,
@@ -688,20 +688,20 @@ compress,
 rollback,
 synthesize
 }
-]
+$$
 Cada acción (a) tiene prerequisitos:
-[
+$$
 Prereq(a)
-]
+$$
 Una acción es elegible cuando:
-[
+$$
 Eligible(a)
 \iff
 Prereq(a)\subseteq Resolved(E,B)
-]
+$$
 o cuando el riesgo de no ejecutarla permite una excepción controlada.
 La siguiente acción se selecciona mediante:
-[
+$$
 a^*
 ===
 \arg\max_{a\in Eligible}
@@ -710,13 +710,13 @@ a^*
 }{
 Cost(a)
 }
-]
+$$
 considerando además:
-[
+$$
 RiskReduction(a)
-]
+$$
 Por tanto:
-[
+$$
 Utility(a)=
 \frac{
 \alpha\mathbb{E}[\Delta Cov]
@@ -727,19 +727,19 @@ Utility(a)=
 }{
 WeightedCost(a)
 }
-]
+$$
 y:
-[
+$$
 a^*=\arg\max_{a\in Eligible}Utility(a)
-]
+$$
 ---
 # 16. Política práctica de exploración
 Para evitar que el modelo se reduzca a una optimización inoperable, se adopta una política híbrida.
 ## Fase A: orientación mínima obligatoria
 Resolver evidencia suficiente de:
-[
+$$
 L_0\rightarrow L_1\rightarrow L_2\rightarrow L_3
-]
+$$
 hasta obtener:
 * propósito provisional;
 * mapa estructural;
@@ -768,19 +768,19 @@ La decisión se basa en:
 ---
 # 17. Bucle de refinamiento
 El retroceso no debe limitarse a:
-[
+$$
 V(x)<\delta
-]
+$$
 También debe activarse cuando:
-[
+$$
 s_x\in{conflicted,contradicted}
-]
+$$
 o cuando:
-[
+$$
 RiskResidual(G)>\rho
-]
+$$
 La política general es:
-[
+$$
 NeedRefinement(x)
 \iff
 Conf(x)<\delta_x
@@ -788,9 +788,9 @@ Conf(x)<\delta_x
 Status(x)\in{conflicted,contradicted}
 \lor
 Risk(x)>\rho_x
-]
+$$
 El nivel de retroceso se determina mediante las dependencias de la afirmación:
-[
+$$
 k=
 \min
 {
@@ -798,28 +798,28 @@ nivel(d)
 \mid
 d\in Dep(x),\ d\text{ no resuelto}
 }
-]
+$$
 No siempre se debe retroceder al nivel inmediatamente anterior. Debe regresarse al origen causal de la incertidumbre.
 ---
 # 18. Criterios de terminación
 El agente puede finalizar cuando se cumplan conjuntamente:
-[
+$$
 Cov(E,B,G)\geq\theta_G
-]
-[
+$$
+$$
 RiskResidual(G)\leq\rho_G
-]
-[
+$$
+$$
 CriticalConflicts=\varnothing
-]
-[
+$$
+$$
 \forall b\in Conclusions:
 Conf(b)\geq\delta_b
-]
+$$
 o cuando:
-[
+$$
 K_{\mathrm{remaining}}
-]
+$$
 no permite una acción cuyo valor marginal esperado justifique el costo.
 En este último caso, el resultado debe declararse incompleto y describir:
 * evidencia ausente;
@@ -830,7 +830,7 @@ En este último caso, el resultado debe declararse incompleto y describir:
 ---
 # 19. Modelo mental final
 La síntesis final queda definida como:
-[
+$$
 M(S,G,t)=
 f
 \left(
@@ -839,55 +839,55 @@ B,
 \pi,
 G
 \right)
-]
+$$
 donde:
 * (E_c): evidencia comprimida y trazable;
 * (B): estado de creencias;
 * (\pi): política de exploración y razonamiento;
 * (G): objetivo.
 Sujeto a:
-[
+$$
 Cost(E_c,B,\pi)\preceq K
-]
+$$
 y:
-[
+$$
 \forall b\in M:
 V(b,\Sigma_{\mathrm{obs}})
 ==========================
 (c_b,s_b,P_b,m_b,t_b)
-]
+$$
 No debe exigirse:
-[
+$$
 c_b>\delta
-]
+$$
 para todas las afirmaciones posibles, porque algunas conclusiones válidas pueden ser explícitamente inciertas.
 La condición correcta es:
-[
+$$
 c_b\geq\delta_b
 \quad\lor\quad
 s_b\in{unknown,conflicted,contradicted}
 \text{ declarado explícitamente}
-]
+$$
 El modelo no oculta incertidumbre; la representa.
 ---
 # 20. Función objetivo global
 El problema central es:
-[
+$$
 \max_{E'\subseteq\Sigma_{\mathrm{obs}}(S,t)}
 Value(E',B\mid G)
-]
+$$
 sujeto a:
-[
+$$
 Cost(\phi_E(E'))\preceq K
-]
-[
+$$
+$$
 Traceability(\phi_E(E'))=1
-]
-[
+$$
+$$
 RiskResidual(M)\leq\rho_G
-]
+$$
 Una función de valor posible es:
-[
+$$
 Value=
 \alpha Cov
 +
@@ -899,7 +899,7 @@ Value=
 -----------------
 ## \mu Contradiction
 \nu Staleness
-]
+$$
 La jerarquía (L_0\rightarrow L_5) constituye una heurística de precedencia para aproximar este óptimo, no el objetivo en sí mismo.
 ---
 # 21. Matriz maestra definitiva
@@ -914,7 +914,10 @@ La jerarquía (L_0\rightarrow L_5) constituye una heurística de precedencia par
 | (L_{\mathrm{NF}}) | Seguridad, privacidad, rendimiento, compliance  | Hallazgos por dimensión                   | Herramientas especializadas                     | Dependiente de (G)                                    | Fusionar por riesgo y presupuesto                      |
 ---
 # 22. Algoritmo de referencia
-```python
+
+> Pseudocódigo ilustrativo (no ejecutable tal cual). Implementación de referencia ejecutable en `argos_model/algorithm.py`.
+
+```text
 def analyze_system(system, goal, budget, policy):
     evidence = EvidenceStore()
     beliefs = BeliefStore()
@@ -1044,7 +1047,7 @@ La calidad de un agente de análisis de software no debe medirse por:
 * extensión de su respuesta;
 * apariencia de certeza.
 Debe medirse por:
-[
+$$
 Quality=
 f
 (
@@ -1055,13 +1058,13 @@ riskReduction,
 costEfficiency,
 conflictHandling
 )
-]
+$$
 El modelo definitivo queda sintetizado en:
-[
+$$
 M(S,G,t)=f(E_c,B,\pi,G)
-]
+$$
 con:
-[
+$$
 E_c=
 \phi_E
 \left(
@@ -1069,9 +1072,9 @@ E_c=
 \cup
 L_{\mathrm{NF}}^*(S,G,t)
 \right)
-]
+$$
 y:
-[
+$$
 V(x)=
 (
 confidence,
@@ -1080,6 +1083,6 @@ provenance,
 method,
 timestamp
 )
-]
+$$
 La jerarquía (L_0\rightarrow L_5) conserva su valor como estructura de orientación y precedencia, pero deja de ser una secuencia rígida. El agente debe seleccionar acciones según valor informativo, riesgo, dependencias, cobertura y presupuesto.
 El resultado es una arquitectura epistémica auditable: distingue lo observado de lo inferido, conserva la procedencia de cada afirmación, representa contradicciones, controla la pérdida de información y declara explícitamente los límites de su conocimiento.
