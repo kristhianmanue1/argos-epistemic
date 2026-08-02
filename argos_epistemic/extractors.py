@@ -15,7 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Iterable
 
-from .callgraph import CallGraph, build_call_graph, module_metrics
+from .callgraph import CallGraph, build_call_graph, build_multi_call_graph, module_metrics
 
 DEFAULT_IGNORES = {
     ".git",
@@ -183,8 +183,7 @@ def extract_system(
         raise NotADirectoryError(root)
     ignores = set(DEFAULT_IGNORES)
     files = _walk(root, ignores)
-    py_files = [p for p in files if p.suffix == ".py"]
-    cg = build_call_graph(root, py_files)
+    cg = build_multi_call_graph(root, files)
     metrics = module_metrics(cg)
     sim = semantic_fn or lexical_semantic
     artifacts: list[dict[str, Any]] = [

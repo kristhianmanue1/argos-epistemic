@@ -85,6 +85,12 @@ class CallGraph:
                 sub.edges.add((caller, callee))
         return sub
 
+    def merge(self, other: "CallGraph") -> None:
+        for node_id, node in other.nodes.items():
+            if node_id not in self.nodes:
+                self.add_node(node_id, node.file, node.name)
+        self.edges |= other.edges
+
 
 class _CallCollector(ast.NodeVisitor):
     def __init__(self) -> None:
@@ -131,6 +137,38 @@ def build_call_graph(root: Path, py_files: list[Path]) -> CallGraph:
             for target in chosen:
                 cg.add_edge(node_id, target)
     return cg
+
+
+# Pluggable L3 extractors: the MODEL is language-agnostic; each entry is a tool
+# that builds a CallGraph for one language from its files. Python's AST extractor
+# is bundled; other languages are registered externally (e.g. tree-sitter).
+L3_EXTRACTORS: dict[str, object] = {".py": build_call_graph}
+
+
+def register_l3_extractor(suffix: str, extractor) -> None:
+    """Register a CallGraph extractor for a source suffix (e.g. '.js')."""
+    L3_EXTRACTORS[suffix.lower()] = extractor
+
+
+def build_multi_call_graph(root: Path, files: list[Path]) -> CallGraph:
+    """Dispatch to per-language L3 extractors and merge their CallGraphs.
+
+    Files whose suffix has no registered extractor are skipped (graceful no-op),
+    so the pipeline runs on any repo and simply yields no L3 for unsupported
+    languages.
+    """
+    merged = CallGraph()
+    by_suffix: dict[str, list[Path]] = {}
+    for path in files:
+        by_suffix.setdefault(path.suffix.lower(), []).append(path)
+    for suffix, extractor in L3_EXTRACTORS.items():
+        candidates = by_suffix.get(suffix, [])
+        if not candidates:
+            continue
+        partial = extractor(root, candidates)
+        if partial is not None:
+            merged.merge(partial)
+    return merged
 
 
 def is_test_file(file: str) -> bool:

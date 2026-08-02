@@ -14,8 +14,8 @@ from .algorithm import (
     q_g_invariant,
     run,
 )
-from .callgraph import CallGraph, build_call_graph
-from .dynamic import dynamic_artifact, run_pytest
+from .callgraph import CallGraph, build_call_graph, build_multi_call_graph, register_l3_extractor
+from .dynamic import detect_runner, dynamic_artifact, run_pytest, run_tests
 from .extractors import analyze_path, extract_system, lexical_semantic
 from .history import git_log_summary, history_artifact
 
@@ -34,13 +34,16 @@ __all__ = [
     "analyze_system",
     "analyze_path",
     "build_call_graph",
+    "build_multi_call_graph",
     "capacity_for_budget",
+    "detect_runner",
     "dynamic_artifact",
     "extract_system",
     "git_log_summary",
     "history_artifact",
     "lexical_semantic",
     "q_g_invariant",
+    "register_l3_extractor",
     "run_pytest",
     "run",
 ]

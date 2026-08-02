@@ -293,6 +293,49 @@ def test_historical_verification_confidence():
     assert hist and hist[0]["confidence"] == 0.8 and hist[0]["status"] == "supported"
 
 
+def test_detect_runner_by_manifest(tmp_path):
+    from argos_epistemic import detect_runner
+
+    (tmp_path / "package.json").write_text("{}", encoding="utf-8")
+    assert detect_runner(tmp_path)[0] == "npm"
+    (tmp_path / "package.json").unlink()
+    (tmp_path / "Cargo.toml").write_text("[package]\n", encoding="utf-8")
+    assert detect_runner(tmp_path)[0] == "cargo"
+    (tmp_path / "Cargo.toml").unlink()
+    (tmp_path / "go.mod").write_text("module x\n", encoding="utf-8")
+    assert detect_runner(tmp_path)[0] == "go"
+    (tmp_path / "go.mod").unlink()
+    assert detect_runner(tmp_path)[0] == "pytest"  # default
+
+
+def test_l3_is_pluggable_per_language(tmp_path):
+    from argos_epistemic import build_multi_call_graph, register_l3_extractor
+    from argos_epistemic.callgraph import CallGraph, L3_EXTRACTORS
+
+    (tmp_path / "mod.js").write_text("function foo(){ bar(); }\n", encoding="utf-8")
+
+    def fake_js(root, files):
+        cg = CallGraph()
+        for f in files:
+            cg.add_node(f"{f.relative_to(root)}::foo", str(f.relative_to(root)), "foo")
+        return cg
+
+    register_l3_extractor(".js", fake_js)
+    try:
+        cg = build_multi_call_graph(tmp_path, [tmp_path / "mod.js"])
+        assert any("mod.js::foo" == n for n in cg.nodes)
+    finally:
+        L3_EXTRACTORS.pop(".js", None)
+
+
+def test_l3_unknown_language_is_graceful(tmp_path):
+    from argos_epistemic import build_multi_call_graph
+
+    (tmp_path / "mod.rs").write_text("fn main(){}\n", encoding="utf-8")
+    cg = build_multi_call_graph(tmp_path, [tmp_path / "mod.rs"])
+    assert len(cg.nodes) == 0  # no .rs extractor registered -> no L3, no crash
+
+
 def test_impact_excludes_test_files():
     from pathlib import Path
 

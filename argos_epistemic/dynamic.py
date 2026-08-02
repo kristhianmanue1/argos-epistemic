@@ -11,34 +11,70 @@ confianza la fija el algoritmo al metodo (passing suite -> 0.9, ``supported``).
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
-_SUMMARY = re.compile(
-    r"(\d+) passed(?:[,\s]+(\d+) failed)?(?:[,\s]+(\d+) errors)?(?:[,\s]+(\d+) skipped)?"
-    r"(?:.*?in ([\d.]+)s)?"
+
+_RUNNERS_BY_MANIFEST: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("package.json", "npm", ("npm", "test")),
+    ("Cargo.toml", "cargo", ("cargo", "test", "--quiet")),
+    ("go.mod", "go", ("go", "test", "./...")),
+    ("Gemfile", "rspec", ("rspec", "--format", "progress")),
 )
 
 
-def run_pytest(
+def detect_runner(root: Path | str) -> tuple[str, tuple[str, ...]]:
+    """Pick a test command from manifests. Default is pytest (Python)."""
+    root = Path(root)
+    for manifest, label, cmd in _RUNNERS_BY_MANIFEST:
+        if (root / manifest).exists():
+            return label, cmd
+    return "pytest", (sys.executable, "-m", "pytest", "-q", "--no-header", "-p", "no:cacheprovider", "--tb=line")
+
+
+def _parse_generic(out: str) -> dict[str, Any]:
+    def first(pattern: str) -> int:
+        m = re.search(pattern, out)
+        return int(m.group(1)) if m else 0
+
+    return {
+        "passed": first(r"(\d+)\s+passed") or first(r"(\d+)\s+examples"),
+        "failed": first(r"(\d+)\s+failed") or first(r"(\d+)\s+failures"),
+        "errors": first(r"(\d+)\s+errors"),
+        "duration_s": _parse_duration(out),
+        "failures": [ln.strip() for ln in out.splitlines() if ln.startswith(("FAILED", "FAIL", "FAILURES"))][:10],
+    }
+
+
+def _parse_duration(out: str) -> float | None:
+    m = re.search(r"in ([\d.]+)s", out)
+    if m:
+        return float(m.group(1))
+    m = re.search(r"([\d.]+)s$", out.splitlines()[-1] if out.strip() else "")
+    return float(m.group(1)) if m else None
+
+
+def run_tests(
     root: Path | str,
     timeout: int = 120,
-    python: str | None = None,
+    *,
+    runner: tuple[str, tuple[str, ...]] | None = None,
+    env: dict[str, str] | None = None,
 ) -> dict[str, Any]:
+    """Run the project's test suite (detected by manifest). Best-effort parse.
+
+    Verificación dinámica (§9.1): ``supported`` si rc==0 y hay señales de pase;
+    ``contradicted`` si rc!=0; ``weak``/``unavailable`` según corresponda. El
+    parseo de passed/failed es genérico (pytest/jest/cargo/go/rspec) y puede
+    subreportar cuando el formato de salida difiere.
+    """
     root = Path(root)
-    cmd = [
-        python or sys.executable,
-        "-m",
-        "pytest",
-        "-q",
-        "--no-header",
-        "-p",
-        "no:cacheprovider",
-        "--tb=line",
-    ]
+    label, cmd = runner or detect_runner(root)
+    runner_env = _scrub_env(env)
     try:
         proc = subprocess.run(
             cmd,
@@ -46,9 +82,12 @@ def run_pytest(
             capture_output=True,
             text=True,
             timeout=timeout,
+            env=runner_env,
+            start_new_session=True,
         )
     except (subprocess.TimeoutExpired, FileNotFoundError) as exc:
         return {
+            "runner": label,
             "status": "unavailable",
             "error": type(exc).__name__,
             "returncode": None,
@@ -59,27 +98,33 @@ def run_pytest(
             "failures": [],
         }
     out = (proc.stdout or "") + "\n" + (proc.stderr or "")
-    m = _SUMMARY.search(out)
-    passed = int(m.group(1)) if m and m.group(1) else 0
-    failed = int(m.group(2)) if m and m.group(2) else 0
-    errors = int(m.group(3)) if m and m.group(3) else 0
-    duration = float(m.group(5)) if m and m.group(5) else None
-    failures = [ln.strip() for ln in out.splitlines() if ln.startswith("FAILED")][:10]
-    if proc.returncode == 0 and failed == 0 and errors == 0 and passed > 0:
+    parsed = _parse_generic(out)
+    if proc.returncode == 0 and parsed["failed"] == 0 and parsed["errors"] == 0 and parsed["passed"] > 0:
         status = "supported"
-    elif failed or errors:
+    elif proc.returncode != 0:
         status = "contradicted"
     else:
         status = "weak"
-    return {
-        "status": status,
-        "returncode": proc.returncode,
-        "passed": passed,
-        "failed": failed,
-        "errors": errors,
-        "duration_s": duration,
-        "failures": failures,
-    }
+    return {"runner": label, "status": status, "returncode": proc.returncode, **parsed}
+
+
+def _scrub_env(env: dict[str, str] | None) -> dict[str, str]:
+    """Drop credential-ish env vars before spawning untrusted test runners."""
+    base = dict(env) if env is not None else dict(os.environ)
+    for key in list(base):
+        if any(s in key.upper() for s in ("TOKEN", "SECRET", "PASSWORD", "CREDENTIAL", "API_KEY", "PRIVATE_KEY")):
+            base.pop(key, None)
+    return base
+
+
+def run_pytest(
+    root: Path | str,
+    timeout: int = 120,
+    python: str | None = None,
+) -> dict[str, Any]:
+    """Backward-compatible Python-only entry; delegates to run_tests."""
+    cmd = (python or sys.executable, "-m", "pytest", "-q", "--no-header", "-p", "no:cacheprovider", "--tb=line")
+    return run_tests(root, timeout=timeout, runner=("pytest", cmd))
 
 
 def dynamic_artifact(
@@ -87,16 +132,17 @@ def dynamic_artifact(
     goal: dict[str, Any] | None = None,
     timeout: int = 120,
 ) -> dict[str, Any] | None:
-    result = run_pytest(root, timeout=timeout)
+    result = run_tests(root, timeout=timeout)
     lines = [
-        f"pytest rc={result['returncode']} passed={result['passed']} "
-        f"failed={result['failed']} errors={result['errors']} status={result['status']}"
+        f"runner={result['runner']} rc={result['returncode']} "
+        f"passed={result['passed']} failed={result['failed']} "
+        f"errors={result['errors']} status={result['status']}"
     ]
     if result.get("duration_s") is not None:
         lines.append(f"duration_s={result['duration_s']}")
     lines.extend(result.get("failures", []))
     return {
-        "id": "L5:pytest",
+        "id": f"L5:{result['runner']}",
         "content": "\n".join(lines),
         "location": "(dynamic)",
         "level": 5,
