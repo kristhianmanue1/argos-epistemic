@@ -76,11 +76,13 @@ def test_detects_conflict_between_doc_and_code():
     system = {
         "name": "divergente",
         "artifacts": [
-            {"id": "doc_f", "content": "feature on", "location": "f_X", "level": 0, "relevance": 1.0, "kind": "doc"},
-            {"id": "code_f", "content": "feature off", "location": "f_X", "level": 4, "relevance": 1.0, "kind": "code"},
+            {"id": "doc_f", "content": "feature on", "location": "f_X", "level": 0, "relevance": 1.0, "kind": "doc",
+             "supports": [{"aspect": "f_X"}]},
+            {"id": "code_f", "content": "feature off", "location": "f_X", "level": 4, "relevance": 1.0, "kind": "code",
+             "supports": [{"aspect": "f_X"}]},
         ],
     }
-    goal = {"name": "g", "aspects": ["f_X"], "theta_coverage": 0.95, "rho_risk": 0.05}
+    goal = {"name": "g", "aspects": ["f_X"], "theta_coverage": 2.0, "rho_risk": 0.0}
     report = analyze_system(system, goal, Budget(tokens_remaining=10000, tool_remaining=50))
     assert report["conflict_count"] >= 1
     conflict = report["conflicts"][0]
@@ -95,15 +97,19 @@ def test_conflict_tolerates_rewording_but_flags_divergence():
     same = {
         "name": "s",
         "artifacts": [
-            {"id": "a", "content": "Autenticacion requerida", "location": "auth", "level": 0, "relevance": 1.0, "kind": "doc"},
-            {"id": "b", "content": "autenticacion  requerida!!!", "location": "auth", "level": 0, "relevance": 1.0, "kind": "doc"},
+            {"id": "a", "content": "Autenticacion requerida", "location": "auth", "level": 0, "relevance": 1.0, "kind": "doc",
+             "supports": [{"aspect": "auth"}]},
+            {"id": "b", "content": "autenticacion  requerida!!!", "location": "auth", "level": 0, "relevance": 1.0, "kind": "doc",
+             "supports": [{"aspect": "auth"}]},
         ],
     }
     divergent = {
         "name": "s",
         "artifacts": [
-            {"id": "a", "content": "autenticacion requerida", "location": "auth", "level": 0, "relevance": 1.0, "kind": "doc"},
-            {"id": "b", "content": "sin autenticacion", "location": "auth", "level": 0, "relevance": 1.0, "kind": "doc"},
+            {"id": "a", "content": "autenticacion requerida", "location": "auth", "level": 0, "relevance": 1.0, "kind": "doc",
+             "supports": [{"aspect": "auth"}]},
+            {"id": "b", "content": "sin autenticacion", "location": "auth", "level": 0, "relevance": 1.0, "kind": "doc",
+             "supports": [{"aspect": "auth"}]},
         ],
     }
     r_same = analyze_system(same, goal, Budget(tokens_remaining=10000, tool_remaining=20))
@@ -319,6 +325,57 @@ def test_embedding_semantic_better_than_lexical_on_morphology():
     art = "authentication module for the api"
     goal = "auth seguridad"
     assert embedding_semantic(art, goal) > lexical_semantic(art, goal)
+
+
+def test_h7_polarity_contradiction_on_same_aspect():
+    system = {
+        "name": "s",
+        "artifacts": [
+            {"id": "doc", "content": "auth ok", "level": 0, "relevance": 1.0, "kind": "doc",
+             "supports": [{"aspect": "auth"}]},
+            {"id": "t", "content": "auth auth", "location": "(dynamic)", "level": 5, "relevance": 0.85,
+             "kind": "test-run", "verification_method": "dynamic", "supports": [{"aspect": "auth"}],
+             "run": {"runner": "x", "status": "contradicted", "returncode": 1,
+                     "passed": 0, "failed": 1, "errors": 0}},
+        ],
+    }
+    report = analyze_system(system, {"name": "g", "aspects": ["auth"], "theta_coverage": 2.0, "rho_risk": 0.0},
+                            Budget(tokens_remaining=10000, tool_remaining=20))
+    assert report["conflict_count"] >= 1
+    conflict = report["conflicts"][0]
+    assert conflict["scope"] == "auth"
+    assert conflict["severity"] >= 0.9
+    assert conflict["evidence_for"] and conflict["evidence_against"]
+
+
+def test_h7_conflicts_deduplicated_across_iterations():
+    system = {
+        "name": "s",
+        "artifacts": [
+            {"id": "a", "content": "feature on", "level": 0, "relevance": 1.0, "kind": "doc",
+             "supports": [{"aspect": "f"}]},
+            {"id": "b", "content": "feature off", "level": 0, "relevance": 1.0, "kind": "doc",
+             "supports": [{"aspect": "f"}]},
+        ],
+    }
+    report = analyze_system(system, {"name": "g", "aspects": ["f"], "theta_coverage": 2.0, "rho_risk": 0.0},
+                            Budget(tokens_remaining=10000, tool_remaining=20))
+    assert report["conflict_count"] == 1  # dedup: one conflict, not accumulated
+
+
+def test_h7_conflict_is_aspect_based_not_location_based():
+    system = {
+        "name": "s",
+        "artifacts": [
+            {"id": "doc_x", "content": "feature on", "location": "docs/file.md", "level": 0,
+             "relevance": 1.0, "kind": "doc", "supports": [{"aspect": "f"}]},
+            {"id": "code_y", "content": "feature off", "location": "src/file.py", "level": 4,
+             "relevance": 1.0, "kind": "code", "supports": [{"aspect": "f"}]},
+        ],
+    }
+    report = analyze_system(system, {"name": "g", "aspects": ["f"], "theta_coverage": 2.0, "rho_risk": 0.0},
+                            Budget(tokens_remaining=10000, tool_remaining=20))
+    assert report["conflict_count"] >= 1  # different locations, same aspect -> still a conflict
 
 
 def test_h1_irrelevant_evidence_does_not_raise_coverage():

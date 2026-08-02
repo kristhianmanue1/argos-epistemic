@@ -227,6 +227,9 @@ class ConflictStore:
 
     def merge(self, conflicts: list[Conflict]) -> None:
         for conflict in conflicts:
+            key = (conflict.scope, conflict.claim)
+            if any((c.scope, c.claim) == key for c in self._items):
+                continue
             self._items.append(conflict)
 
     def critical(self) -> list[Conflict]:
@@ -280,7 +283,8 @@ class Proposition:
     This is the keystone layer (readme.md §7, §12, §23): evidence becomes a
     proposition about a *specific* aspect of the goal, with polarity and
     confidence. Coverage is computed per aspect over propositions, so evidence
-    unrelated to an aspect contributes exactly zero.
+    unrelated to an aspect contributes exactly zero. Conflicts are detected
+    between propositions on the same aspect (see ``detect_proposition_conflicts``).
     """
 
     aspect: str
@@ -293,6 +297,7 @@ class Proposition:
     timestamp: int = 0
     dependencies: tuple[str, ...] = ()
     strength: float = 1.0
+    position: frozenset[str] = frozenset()
 
 
 class PropositionStore:
@@ -398,6 +403,7 @@ def derive_propositions(
                 timestamp=evidence.timestamp,
                 dependencies=(evidence.id,),
                 strength=strength,
+                position=_tokens(str(artifact.get("content", ""))) if artifact else frozenset(),
             )
         )
     return props
@@ -646,50 +652,60 @@ def verify_evidence(
     )
 
 
-def detect_conflicts(
-    evidence: EvidenceStore,
-    beliefs: BeliefStore,
+def detect_proposition_conflicts(
+    propositions: PropositionStore,
     *,
     similarity: Callable[[frozenset[str], frozenset[str]], float] = _jaccard,
     threshold: float = 0.5,
 ) -> list[Conflict]:
-    """Detect divergent beliefs at the same scope.
+    """Contradictions between propositions, not between files (readme.md §11).
 
-    Two beliefs ``conflict`` when their positions are not near-equivalent:
-    ``similarity(a, b) < threshold``. Default similarity is lexical Jaccard over
-    token sets — it tolerates case/punctuation/word-order reformulation but is
-    NOT semantic equivalence (that requires an LLM/embedding approximator, i.e.
-    ``S_semantic``). Inject ``similarity`` to plug a richer one.
+    Two signals per aspect:
+    * polarity contradiction (strong): the aspect has both a positive and a
+      negative proposition (e.g. a passing and a failing test on the same
+      aspect) -> severity 0.9.
+    * claim divergence (weaker): same polarity but divergent positions
+      (``similarity < threshold``) -> severity from the confidence gap.
+
+    Identity is stable: keyed by ``(aspect, claim)`` so the store dedups across
+    loop iterations instead of accumulating.
     """
-    by_scope: dict[str, list[Belief]] = {}
-    for belief in beliefs:
-        by_scope.setdefault(belief.scope, []).append(belief)
+    by_aspect: dict[str, list[Proposition]] = {}
+    for prop in propositions:
+        by_aspect.setdefault(prop.aspect, []).append(prop)
     conflicts: list[Conflict] = []
-    for scope, group in by_scope.items():
-        if len(group) < 2:
+    for aspect, props in by_aspect.items():
+        if len(props) < 2:
             continue
-        primary = group[0].position
-        evidence_for: list[str] = []
-        evidence_against: list[str] = []
-        for belief in group:
-            if similarity(primary, belief.position) >= threshold:
-                evidence_for.extend(belief.dependencies)
-            else:
-                evidence_against.extend(belief.dependencies)
-        if not evidence_against:
-            continue
-        confidences = [b.confidence for b in group]
-        severity = min(1.0, 0.5 + max(confidences) - min(confidences))
-        conflicts.append(
-            Conflict(
-                claim=f"divergencia en {scope}",
-                evidence_for=tuple(evidence_for),
-                evidence_against=tuple(evidence_against),
-                scope=scope,
-                severity=severity,
-                resolution_status="open",
+        pos = [p for p in props if p.polarity > 0]
+        neg = [p for p in props if p.polarity < 0]
+        if pos and neg:
+            conflicts.append(
+                Conflict(
+                    claim=f"contradiccion en {aspect}",
+                    evidence_for=tuple(p.evidence_id for p in pos),
+                    evidence_against=tuple(p.evidence_id for p in neg),
+                    scope=aspect,
+                    severity=0.9,
+                    resolution_status="open",
+                )
             )
-        )
+            continue
+        ref = props[0]
+        against = [p for p in props[1:] if similarity(ref.position, p.position) < threshold]
+        if against:
+            confs = [p.confidence for p in props]
+            severity = min(1.0, 0.5 + max(confs) - min(confs))
+            conflicts.append(
+                Conflict(
+                    claim=f"divergencia en {aspect}",
+                    evidence_for=tuple(ref.evidence_id for _ in range(1)),
+                    evidence_against=tuple(p.evidence_id for p in against),
+                    scope=aspect,
+                    severity=severity,
+                    resolution_status="open",
+                )
+            )
     return conflicts
 
 
@@ -824,14 +840,12 @@ def analyze_system(system: dict[str, Any], goal: dict[str, Any], budget: Budget,
         ):
             propositions.add(prop)
         conflicts.merge(
-            detect_conflicts(
-                evidence,
-                beliefs,
+            detect_proposition_conflicts(
+                propositions,
                 similarity=goal.get("conflict_similarity") or _jaccard,
                 threshold=goal.get("conflict_threshold", 0.5),
             )
         )
-        beliefs.mark_conflicted(conflicts.open_scopes())
         protected_ids: set[str] = set()
         for conflict in conflicts:
             protected_ids.update(conflict.evidence_for)
