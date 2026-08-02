@@ -58,20 +58,36 @@ Conclusiones verificadas (5, extraídas del `BeliefStore`): tres con estado
    con `position` distinta; en este repositorio los artefactos son únicos por
    ubicación. Queda sin ejercitar empíricamente la rama de escalamiento de
    contradicciones.
-3. **R approximado, no computado.** La selección usó `relevance` declarada, no
-   `R = α·S_semantic + β·Impact + γ·Centrality + …`, porque ni `S_semantic` ni los
-   grafos L1/L3 están implementados (§6.1). El `coverage`/`risk` reportados son
-   por-aspecto con la heurística de referencia, no una medición fiel del modelo.
+3. **R parcialmente computado.** `relevance` ahora mezcla 0.6·lexical + 0.25·`Impact`
+   + 0.15·`Centrality` (L3 implementado, términos tool-measured de §6.1). `S_semantic`
+   sigue sin computarse (LLM-approximated), por lo que persiste un sesgo léxico.
+4. **Cobertura completa con L3+L5.** Forzando extracción (`θ=2.0`) con extractores
+   L3 (grafo de llamadas) y L5 dinámico activos, `levels_covered = [0,1,2,3,4,5]`:
+   los seis niveles del modelo quedan ejercitados sobre el propio repositorio.
+
+## L5 dinámico (pytest)
+
+Con `run_dynamic=True`, el extractor ejecuta la suite real del sistema y produce
+el artefacto `L5:pytest` con `verification_method="dynamic"`:
+
+```text
+pytest rc=0 passed=18 failed=0 errors=0 status=supported
+belief: test-run@(dynamic) observado para 'refactorizacion' -> supported, 0.9
+```
+
+La verificación dinámica (§9.1) asigna confianza 0.9 / `supported` a la suite
+pasante; `contradicted` si hay fallos. L5 es **opt-in** porque ejecuta código del
+sistema: un agente no debe correr tests de terceros sin considerar confianza y
+presupuesto.
 
 ## Riesgo residual
 
 - **Autoestudio (severidad alta para validez empírica).** El analizador y el
-  analizado coinciden; un repo de terceros daría evidencia independiente. No
-  consumida: requiere clonar/inspeccionar un sistema externo.
-- **L3/L5 no implementados.** Sin grafo de llamadas ni ejecución, `Impact`,
-  `Centrality` y el comportamiento dinámico no se miden.
+  analizado coinciden; ver `case-study-markupsafe.md` para evidencia independiente.
 - **`S_semantic` es LLM-approximated.** Su ausencia sesga la selección hacia
   señales léxicas (nombre/extensión).
+- **L5 sólo pytest.** Sin logs, trazas, profiling ni historial de despliegue;
+  la evidencia dinámica se limita a "la suite pasa".
 
 ## Reproducibilidad
 

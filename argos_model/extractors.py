@@ -219,10 +219,15 @@ def extract_system(root: Path | str, goal: dict[str, Any] | None = None) -> dict
 
 
 def _callgraph_artifact(cg: CallGraph) -> dict[str, Any]:
-    cent = cg.centrality()
-    imp = cg.impact()
-    ranked = sorted(cg.nodes.values(), key=lambda n: imp[n.id], reverse=True)[:20]
-    lines = [f"impact centrality node ({len(cg.nodes)} nodes, {len(cg.edges)} edges)"]
+    prod = cg.production_subgraph()
+    cent = prod.centrality()
+    imp = prod.impact()
+    ranked = sorted(prod.nodes.values(), key=lambda n: imp[n.id], reverse=True)[:20]
+    lines = [
+        f"production impact centrality node "
+        f"({len(prod.nodes)} prod nodes, {len(prod.edges)} prod edges; "
+        f"{len(cg.nodes) - len(prod.nodes)} test nodes excluded)"
+    ]
     for node in ranked:
         lines.append(f"{imp[node.id]:.2f}    {cent[node.id]:.2f}    {node.id}")
     return {
@@ -236,28 +241,39 @@ def _callgraph_artifact(cg: CallGraph) -> dict[str, Any]:
 
 
 def _callgraph_summary(cg: CallGraph) -> dict[str, Any]:
+    prod = cg.production_subgraph()
+    imp = prod.impact()
     return {
         "nodes": len(cg.nodes),
         "edges": len(cg.edges),
+        "production_nodes": len(prod.nodes),
         "top_impact": [
-            {"id": n.id, "impact": round(_safe_impact(cg, n.id), 3)}
-            for n in sorted(cg.nodes.values(), key=lambda m: _safe_impact(cg, m.id), reverse=True)[:5]
+            {"id": n.id, "impact": round(imp.get(n.id, 0.0), 3)}
+            for n in sorted(prod.nodes.values(), key=lambda m: imp.get(m.id, 0.0), reverse=True)[:5]
         ],
     }
 
 
 def _safe_impact(cg: CallGraph, node_id: str) -> float:
-    return cg.impact().get(node_id, 0.0)
+    return cg.production_subgraph().impact().get(node_id, 0.0)
 
 
 def analyze_path(
     root: Path | str,
     goal: dict[str, Any] | None = None,
     budget: Any = None,
+    run_dynamic: bool = False,
+    dynamic_timeout: int = 120,
 ) -> dict[str, Any]:
     from .algorithm import Budget, analyze_system
+    from .dynamic import dynamic_artifact
 
     if budget is None:
         budget = Budget(tokens_remaining=200000, tool_remaining=2000)
     system = extract_system(root, goal)
+    if run_dynamic:
+        artifact = dynamic_artifact(root, timeout=dynamic_timeout)
+        if artifact is not None:
+            system["artifacts"].append(artifact)
+            system["dynamic"] = artifact.pop("run", None)
     return analyze_system(system, goal or {}, budget)

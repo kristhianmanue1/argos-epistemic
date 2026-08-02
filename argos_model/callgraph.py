@@ -73,6 +73,18 @@ class CallGraph:
             return {n_id: 0.0 for n_id in self.nodes}
         return {n_id: len(self.reachable(n_id)) / (n - 1) for n_id in self.nodes}
 
+    def production_subgraph(self) -> "CallGraph":
+        """Subgraph excluding test files (production-only view for R metrics)."""
+        sub = CallGraph()
+        for node_id, node in self.nodes.items():
+            if is_test_file(node.file):
+                continue
+            sub.add_node(node_id, node.file, node.name)
+        for caller, callee in self.edges:
+            if caller in sub.nodes and callee in sub.nodes:
+                sub.edges.add((caller, callee))
+        return sub
+
 
 class _CallCollector(ast.NodeVisitor):
     def __init__(self) -> None:
@@ -121,12 +133,30 @@ def build_call_graph(root: Path, py_files: list[Path]) -> CallGraph:
     return cg
 
 
+def is_test_file(file: str) -> bool:
+    lower = file.lower()
+    base = lower.rsplit("/", 1)[-1]
+    return (
+        lower.startswith(("tests/", "test/", "spec/"))
+        or "/tests/" in lower
+        or "/test/" in lower
+        or base.startswith("test_")
+        or base.startswith("conftest")
+    )
+
+
 def module_metrics(cg: CallGraph) -> dict[str, dict[str, float]]:
-    """Aggregate per-module max centrality/impact for artifact tagging."""
-    cent = cg.centrality()
-    imp = cg.impact()
+    """Per-module max centrality/impact over the **production** subgraph.
+
+    Test files are excluded from the metric so they don't inflate production
+    impact (tests are sinks that call many symbols). Test files get 0.0 here;
+    they enter the pipeline as L5 evidence, not as production nodes of ``R``.
+    """
+    prod = cg.production_subgraph()
+    cent = prod.centrality()
+    imp = prod.impact()
     out: dict[str, dict[str, float]] = {}
-    for node in cg.nodes.values():
+    for node in prod.nodes.values():
         bucket = out.setdefault(node.file, {"centrality": 0.0, "impact": 0.0, "functions": 0.0})
         bucket["centrality"] = max(bucket["centrality"], cent[node.id])
         bucket["impact"] = max(bucket["impact"], imp[node.id])

@@ -296,7 +296,8 @@ def generate_candidate_actions(
                 target_id=artifact["id"],
                 level=artifact["level"],
                 estimated_cost=Cost(tokens=int(50 * artifact.get("relevance", 1.0)), tool=1),
-                verification_method="deterministic" if artifact["level"] <= 2 else "symbolic",
+                verification_method=artifact.get("verification_method")
+                or ("deterministic" if artifact["level"] <= 2 else "symbolic"),
                 prerequisites=tuple(artifact.get("prerequisites", [])),
                 expected_delta_coverage=artifact.get("relevance", 0.1) * 0.2,
                 expected_delta_confidence=0.2,
@@ -370,7 +371,7 @@ def execute_action(action: Action, system: dict[str, Any]) -> ActionResult:
         level=artifact["level"],
         timestamp=artifact.get("timestamp", 0),
     )
-    confidence = 0.9 if action.verification_method == "deterministic" else 0.6
+    confidence = 0.9 if action.verification_method in ("deterministic", "dynamic") else 0.6
     status = "supported" if confidence >= 0.7 else "weak"
     verification = Verification(
         confidence=confidence,
@@ -392,8 +393,8 @@ def verify_evidence(
     system: dict[str, Any],
 ) -> Verification:
     return Verification(
-        confidence=0.9 if method == "deterministic" else 0.6,
-        status="supported" if method == "deterministic" else "weak",
+        confidence=0.9 if method in ("deterministic", "dynamic") else 0.6,
+        status="supported" if method in ("deterministic", "dynamic") else "weak",
         provenance=evidence.id,
         method=method,
         timestamp=evidence.timestamp,

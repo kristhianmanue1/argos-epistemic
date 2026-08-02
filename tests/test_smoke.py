@@ -185,3 +185,50 @@ def test_relevance_blend_deterministic():
     m1 = {a["id"]: a["relevance"] for a in s1["artifacts"]}
     m2 = {a["id"]: a["relevance"] for a in s2["artifacts"]}
     assert m1 == m2
+
+
+def test_impact_excludes_test_files():
+    from pathlib import Path
+
+    from argos_model.callgraph import is_test_file
+
+    cg = build_call_graph(
+        Path("."),
+        [Path("argos_model/algorithm.py"), Path("tests/test_smoke.py")],
+    )
+    prod = cg.production_subgraph()
+    assert all(not is_test_file(n.file) for n in prod.nodes.values())
+    assert len(prod.nodes) < len(cg.nodes)
+    imp = prod.impact()
+    assert imp["argos_model/algorithm.py::analyze_system"] > 0.0
+    summary_top = extract_system(".", goal={"name": "x", "aspects": []})["call_graph"]["top_impact"]
+    assert all("test" not in entry["id"].split("::")[0].lower() for entry in summary_top)
+
+
+def test_run_pytest_yields_dynamic_evidence(tmp_path):
+    from argos_model import run_pytest
+
+    (tmp_path / "test_ok.py").write_text("def test_ok():\n    assert 1 + 1 == 2\n", encoding="utf-8")
+    result = run_pytest(tmp_path, timeout=60)
+    assert result["status"] == "supported"
+    assert result["passed"] >= 1
+    assert result["failed"] == 0
+
+
+def test_analyze_path_with_dynamic_includes_run(tmp_path):
+    from argos_model import Budget
+
+    (tmp_path / "pyproject.toml").write_text("[project]\nname = 'fix'\nversion = '0'\n", encoding="utf-8")
+    (tmp_path / "pkg.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
+    (tmp_path / "test_pkg.py").write_text("from pkg import add\n\ndef test_add():\n    assert add(1, 2) == 3\n", encoding="utf-8")
+    report = analyze_path(
+        tmp_path,
+        goal={"name": "refactor", "aspects": ["pkg"], "theta_coverage": 2.0, "rho_risk": 0.0},
+        budget=Budget(tokens_remaining=500000, tool_remaining=5000),
+        run_dynamic=True,
+        dynamic_timeout=60,
+    )
+    kinds = report["evidence_kinds"]
+    assert "test-run" in kinds
+    dyn = [c for c in report["conclusions"] if c["claim"].startswith("test-run@")]
+    assert dyn and dyn[0]["status"] == "supported" and dyn[0]["confidence"] >= 0.9
