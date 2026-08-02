@@ -112,25 +112,52 @@ def _relevance(rel_path: str, goal: dict[str, Any]) -> float:
     return min(1.0, score)
 
 
+def _tokens(text: str) -> set[str]:
+    import re
+
+    return {t for t in re.findall(r"[0-9a-záéíóúñ]+", text.lower()) if t}
+
+
+def lexical_semantic(artifact_text: str, goal_text: str) -> float:
+    """Default ``S_semantic`` surrogate: Jaccard over token sets.
+
+    Declared non-faithful (readme.md §6.1): it measures lexical overlap, not
+    semantic similarity. Inject an embedding/LLM-based callable for fidelity.
+    """
+    a, b = _tokens(artifact_text), _tokens(goal_text)
+    if not a and not b:
+        return 0.0
+    union = a | b
+    return len(a & b) / len(union) if union else 0.0
+
+
+def _goal_text(goal: dict[str, Any]) -> str:
+    return " ".join(str(a) for a in goal.get("aspects", [])) + " " + str(goal.get("name", ""))
+
+
 def _blend_relevance(
     rel_path: str,
+    content: str,
     goal: dict[str, Any],
     metrics: dict[str, dict[str, float]] | None,
-) -> tuple[float, float, float]:
-    """Relevance blending: lexical (goal-conditioned) + tool-measured L3 terms.
+    semantic_fn,
+) -> tuple[float, float, float, float]:
+    """Relevance blending: lexical + S_semantic + tool-measured L3 terms.
 
-    Per readme.md §6.1, ``Impact`` and ``Centrality`` are tool-measured and only
-    computable when the L3 extractor runs. Weights: lexical 0.6, impact 0.25,
-    centrality 0.15. Returns (relevance, impact, centrality).
+    Weights: lexical 0.45, S_semantic 0.20, impact 0.20, centrality 0.15.
+    ``S_semantic`` uses ``semantic_fn`` (default ``lexical_semantic`` surrogate,
+    non-faithful per §6.1). Returns (relevance, s_semantic, impact, centrality).
     """
+    sim = semantic_fn or lexical_semantic
     lexical = _relevance(rel_path, goal)
+    s_sem = sim(rel_path + "\n" + content[:512], _goal_text(goal))
     impact = 0.0
     centrality = 0.0
     if metrics and rel_path in metrics:
         impact = float(metrics[rel_path].get("impact", 0.0))
         centrality = float(metrics[rel_path].get("centrality", 0.0))
-    relevance = min(1.0, 0.6 * lexical + 0.25 * impact + 0.15 * centrality)
-    return relevance, impact, centrality
+    relevance = min(1.0, 0.45 * lexical + 0.20 * s_sem + 0.20 * impact + 0.15 * centrality)
+    return relevance, s_sem, impact, centrality
 
 
 def _non_functional(rel_path: str) -> list[str]:
@@ -145,7 +172,11 @@ def _topology(root: Path, files: list[Path]) -> str:
     return "\n".join(_rel(root, p) for p in files[:500])
 
 
-def extract_system(root: Path | str, goal: dict[str, Any] | None = None) -> dict[str, Any]:
+def extract_system(
+    root: Path | str,
+    goal: dict[str, Any] | None = None,
+    semantic_fn=None,
+) -> dict[str, Any]:
     goal = goal or {}
     root = Path(root)
     if not root.is_dir():
@@ -155,6 +186,7 @@ def extract_system(root: Path | str, goal: dict[str, Any] | None = None) -> dict
     py_files = [p for p in files if p.suffix == ".py"]
     cg = build_call_graph(root, py_files)
     metrics = module_metrics(cg)
+    sim = semantic_fn or lexical_semantic
     artifacts: list[dict[str, Any]] = [
         {
             "id": "L1:topology",
@@ -200,7 +232,7 @@ def extract_system(root: Path | str, goal: dict[str, Any] | None = None) -> dict
             is_test = "test" in base or rel.lower().startswith(("tests/", "test/", "spec/"))
             kind = "test" if is_test else ("doc" if path.suffix == ".md" else "code")
             level = 5 if is_test else 4
-            relevance, impact, centrality = _blend_relevance(rel, goal, metrics)
+            relevance, s_sem, impact, centrality = _blend_relevance(rel, content, goal, metrics, sim)
             artifact: dict[str, Any] = {
                 "id": rel,
                 "content": content,
@@ -208,6 +240,7 @@ def extract_system(root: Path | str, goal: dict[str, Any] | None = None) -> dict
                 "level": level,
                 "relevance": relevance,
                 "kind": kind,
+                "s_semantic": s_sem,
                 "impact": impact,
                 "centrality": centrality,
             }
@@ -264,13 +297,14 @@ def analyze_path(
     budget: Any = None,
     run_dynamic: bool = False,
     dynamic_timeout: int = 120,
+    semantic_fn=None,
 ) -> dict[str, Any]:
     from .algorithm import Budget, analyze_system
     from .dynamic import dynamic_artifact
 
     if budget is None:
         budget = Budget(tokens_remaining=200000, tool_remaining=2000)
-    system = extract_system(root, goal)
+    system = extract_system(root, goal, semantic_fn=semantic_fn)
     if run_dynamic:
         artifact = dynamic_artifact(root, timeout=dynamic_timeout)
         if artifact is not None:

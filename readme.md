@@ -348,8 +348,8 @@ Las fórmulas de (R(x\mid G)) (§6) y (Value) (§20) mezclan términos de natura
 * (Centrality(x)): **tool-measured**; centralidad (pagerank/betweenness) sobre el grafo L1/L3.
 * (Traceability(\phi_E(E'))): **computable**; vale (1) sii cada creencia resuelve a evidencia con (V) completa (§8, §10).
 * (Contradiction), (Staleness) en (Value): **mixto**; (Contradiction) se deriva de ConflictStore (§11); (Staleness=1-Freshness).
-* (S_{\mathrm{semantic}}(x,G)): **LLM-approximated**; similitud evidencia(\leftrightarrow)objetivo. No tiene estimador cerrado: se aproxima con un modelo y su incertidumbre debe propagarse como dependencia (§10).
-Implicancia operativa: los términos `tool-measured` sólo son computables cuando el extractor correspondiente existe. En la implementación de referencia (`argos_model/`) los extractores (L_1)–(L_5) no están implementados y (R) se aproxima por la `relevance` declarada en cada artefacto; (S_{\mathrm{semantic}}) no se computa. Por tanto la referencia ejecutable valida terminación y trazabilidad del bucle, no la fidelidad cuantitativa de (R) ni de (Value).
+* (S_{\mathrm{semantic}}(x,G)): **LLM-approximated**; similitud evidencia(\leftrightarrow)objetivo. No tiene estimador cerrado. En la implementacion de referencia es un *surrogate* lexico plugable (Jaccard de tokens, no fiel) que se inyecta via ``semantic_fn``; un aproximador basado en embeddings/LLM puede reemplazarlo y su incertidumbre debe propagarse como dependencia (§10).
+Implicancia operativa: los términos `tool-measured` sólo son computables cuando el extractor correspondiente existe. En la implementación de referencia (`argos_model/`) los extractores (L_1)–(L_5) están implementados a nivel lectura/simbólico (L_3 grafo de llamadas, L_5 pytest e histórico), por lo que (Impact) y (Centrality) se computan sobre el subgrafo de producción; (S_{\mathrm{semantic}}) se aproxima con un surrogate léxico plugable y (R) se mezcla como (0.45\,lexical + 0.20\,S_{semantic} + 0.20\,Impact + 0.15\,Centrality).
 Notación: las llaves literales de conjuntos se escriben (\{\,\}); el modo display usa ($$$\dots$$$).
 ---
 # 7. Separación entre evidencia e inferencia

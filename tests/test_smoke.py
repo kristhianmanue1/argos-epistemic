@@ -235,6 +235,19 @@ def test_relevance_blend_deterministic():
     assert m1 == m2
 
 
+def test_s_semantic_is_pluggable_and_moves_relevance():
+    default = extract_system(".", goal={"name": "x", "aspects": ["algorithm"]})
+    custom = extract_system(
+        ".",
+        goal={"name": "x", "aspects": ["algorithm"]},
+        semantic_fn=lambda art, goal: 1.0 if "extractors" in art.lower() else 0.0,
+    )
+    d = {a["id"]: a["relevance"] for a in default["artifacts"]}
+    c = {a["id"]: a["relevance"] for a in custom["artifacts"]}
+    assert "s_semantic" in next(a for a in custom["artifacts"] if a["id"] == "argos_model/extractors.py")
+    assert c["argos_model/extractors.py"] >= d["argos_model/extractors.py"]
+
+
 def test_impact_excludes_test_files():
     from pathlib import Path
 
