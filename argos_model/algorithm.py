@@ -284,6 +284,18 @@ def compute_residual_risk(
     return max(0.0, min(1.0, (1.0 - avg_confidence) * 0.7 + unknown_share * 0.3))
 
 
+def _confidence_for(method: str) -> float:
+    """Confianza por método de verificación (§9.1).
+
+    deterministic/dynamic -> 0.9; historical -> 0.8; symbolic/other -> 0.6.
+    """
+    if method in ("deterministic", "dynamic"):
+        return 0.9
+    if method == "historical":
+        return 0.8
+    return 0.6
+
+
 def should_stop(
     coverage: float,
     residual_risk: float,
@@ -395,7 +407,7 @@ def execute_action(action: Action, system: dict[str, Any]) -> ActionResult:
         level=artifact["level"],
         timestamp=artifact.get("timestamp", 0),
     )
-    confidence = 0.9 if action.verification_method in ("deterministic", "dynamic") else 0.6
+    confidence = _confidence_for(action.verification_method)
     status = "supported" if confidence >= 0.7 else "weak"
     verification = Verification(
         confidence=confidence,
@@ -417,8 +429,8 @@ def verify_evidence(
     system: dict[str, Any],
 ) -> Verification:
     return Verification(
-        confidence=0.9 if method in ("deterministic", "dynamic") else 0.6,
-        status="supported" if method in ("deterministic", "dynamic") else "weak",
+        confidence=_confidence_for(method),
+        status="supported" if _confidence_for(method) >= 0.7 else "weak",
         provenance=evidence.id,
         method=method,
         timestamp=evidence.timestamp,

@@ -296,15 +296,22 @@ def analyze_path(
     goal: dict[str, Any] | None = None,
     budget: Any = None,
     run_dynamic: bool = False,
+    run_history: bool = False,
     dynamic_timeout: int = 120,
     semantic_fn=None,
 ) -> dict[str, Any]:
     from .algorithm import Budget, analyze_system
     from .dynamic import dynamic_artifact
+    from .history import history_artifact
 
     if budget is None:
         budget = Budget(tokens_remaining=200000, tool_remaining=2000)
     system = extract_system(root, goal, semantic_fn=semantic_fn)
+    if run_history:
+        artifact = history_artifact(root, goal)
+        if artifact is not None:
+            system["artifacts"].append(artifact)
+            system["history"] = artifact.pop("run", None)
     if run_dynamic:
         artifact = dynamic_artifact(root, timeout=dynamic_timeout)
         if artifact is not None:

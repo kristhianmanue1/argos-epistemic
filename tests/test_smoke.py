@@ -248,6 +248,32 @@ def test_s_semantic_is_pluggable_and_moves_relevance():
     assert c["argos_model/extractors.py"] >= d["argos_model/extractors.py"]
 
 
+def test_git_log_summary_on_this_repo():
+    from argos_model import git_log_summary
+
+    summary = git_log_summary(".")
+    assert summary is not None
+    assert summary["commits"] >= 1
+    assert summary["last_commit"] is not None
+    assert summary["days_since_last_commit"] is not None
+
+
+def test_historical_verification_confidence():
+    from argos_model import analyze_path, Budget
+
+    report = analyze_path(
+        ".",
+        goal={"name": "historia", "aspects": ["algorithm"], "theta_coverage": 2.0, "rho_risk": 0.0},
+        budget=Budget(tokens_remaining=500000, tool_remaining=5000),
+        run_history=True,
+    )
+    assert "history" in report["evidence_kinds"] or any(
+        c["claim"].startswith("history@") for c in report["conclusions"]
+    )
+    hist = [c for c in report["conclusions"] if c["claim"].startswith("history@")]
+    assert hist and hist[0]["confidence"] == 0.8 and hist[0]["status"] == "supported"
+
+
 def test_impact_excludes_test_files():
     from pathlib import Path
 
