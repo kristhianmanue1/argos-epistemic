@@ -79,8 +79,29 @@ class Evidence:
 EVIDENCE_CAPACITY = 8
 
 
-def _position_of(content: Any) -> str:
-    return str(content).strip().lower()
+def _tokens(content: Any) -> frozenset[str]:
+    """Lexical surrogate for a position: lowercase alphanumeric token set.
+
+    True semantic identity needs embeddings/LLM (``S_semantic``, LLM-approximated
+    per readme.md §6.1). This frozenset is the deterministic default; a richer
+    ``similarity`` callable can be injected into ``detect_conflicts``.
+    """
+    import re
+
+    return frozenset(t for t in re.findall(r"[0-9a-záéíóúñ]+", str(content).lower()) if t)
+
+
+def _jaccard(a: frozenset[str], b: frozenset[str]) -> float:
+    if not a and not b:
+        return 1.0
+    union = a | b
+    if not union:
+        return 0.0
+    return len(a & b) / len(union)
+
+
+def _position_of(content: Any) -> frozenset[str]:
+    return _tokens(content)
 
 
 @dataclass
@@ -105,6 +126,9 @@ class EvidenceStore:
     def add(self, evidence: Evidence) -> None:
         if not any(item.id == evidence.id for item in self._items):
             self._items.append(evidence)
+
+    def get(self, evidence_id: str) -> Evidence | None:
+        return next((item for item in self._items if item.id == evidence_id), None)
 
     def has(self, evidence_id: str) -> bool:
         return any(item.id == evidence_id for item in self._items)
@@ -134,7 +158,7 @@ class Belief:
     provenance: str
     dependencies: tuple[str, ...] = ()
     scope: str = ""
-    position: str = ""
+    position: frozenset[str] = frozenset()
 
 
 class BeliefStore:
@@ -401,31 +425,71 @@ def verify_evidence(
     )
 
 
-def detect_conflicts(evidence: EvidenceStore, beliefs: BeliefStore) -> list[Conflict]:
+def detect_conflicts(
+    evidence: EvidenceStore,
+    beliefs: BeliefStore,
+    *,
+    similarity: Callable[[frozenset[str], frozenset[str]], float] = _jaccard,
+    threshold: float = 0.5,
+) -> list[Conflict]:
+    """Detect divergent beliefs at the same scope.
+
+    Two beliefs ``conflict`` when their positions are not near-equivalent:
+    ``similarity(a, b) < threshold``. Default similarity is lexical Jaccard over
+    token sets — it tolerates case/punctuation/word-order reformulation but is
+    NOT semantic equivalence (that requires an LLM/embedding approximator, i.e.
+    ``S_semantic``). Inject ``similarity`` to plug a richer one.
+    """
     by_scope: dict[str, list[Belief]] = {}
     for belief in beliefs:
         by_scope.setdefault(belief.scope, []).append(belief)
     conflicts: list[Conflict] = []
     for scope, group in by_scope.items():
-        positions = {b.position for b in group}
-        if len(positions) <= 1:
+        if len(group) < 2:
             continue
         primary = group[0].position
-        evidence_for = tuple(d for b in group if b.position == primary for d in b.dependencies)
-        evidence_against = tuple(d for b in group if b.position != primary for d in b.dependencies)
+        evidence_for: list[str] = []
+        evidence_against: list[str] = []
+        for belief in group:
+            if similarity(primary, belief.position) >= threshold:
+                evidence_for.extend(belief.dependencies)
+            else:
+                evidence_against.extend(belief.dependencies)
+        if not evidence_against:
+            continue
         confidences = [b.confidence for b in group]
         severity = min(1.0, 0.5 + max(confidences) - min(confidences))
         conflicts.append(
             Conflict(
                 claim=f"divergencia en {scope}",
-                evidence_for=evidence_for,
-                evidence_against=evidence_against,
+                evidence_for=tuple(evidence_for),
+                evidence_against=tuple(evidence_against),
                 scope=scope,
                 severity=severity,
                 resolution_status="open",
             )
         )
     return conflicts
+
+
+def q_g_invariant(evidence: EvidenceStore, beliefs: BeliefStore) -> bool:
+    """Traceability invariant (§20): every belief resolves to retained evidence.
+
+    ``Q_G(E) = Q_G(φ_E(E))`` requires that compressing ``E`` does not destroy the
+    evidence needed to verify a current conclusion. Operationally we check that
+    each belief dependency is present with its identifying fields intact
+    (``id``, ``level``, a non-empty ``content`` or ``digest``, and ``source``).
+    """
+    for belief in beliefs:
+        for dep in belief.dependencies:
+            item = evidence.get(dep)
+            if item is None:
+                return False
+            if not (item.content or item.digest):
+                return False
+            if not item.source:
+                return False
+    return True
 
 
 def synthesize_report(
@@ -504,7 +568,14 @@ def analyze_system(system: dict[str, Any], goal: dict[str, Any], budget: Budget,
         evidence.add(new_evidence)
         verification = verify_evidence(new_evidence, action.verification_method, system)
         beliefs.update(new_evidence, verification, goal["name"])
-        conflicts.merge(detect_conflicts(evidence, beliefs))
+        conflicts.merge(
+            detect_conflicts(
+                evidence,
+                beliefs,
+                similarity=goal.get("conflict_similarity") or _jaccard,
+                threshold=goal.get("conflict_threshold", 0.5),
+            )
+        )
         beliefs.mark_conflicted(conflicts.open_scopes())
         protected_ids: set[str] = set()
         for conflict in conflicts:

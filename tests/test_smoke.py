@@ -89,6 +89,54 @@ def test_detects_conflict_between_doc_and_code():
     assert conflict["resolution_status"] == "open"
 
 
+def test_conflict_tolerates_rewording_but_flags_divergence():
+    goal = {"name": "g", "aspects": ["auth"], "theta_coverage": 2.0, "rho_risk": 0.0}
+    same = {
+        "name": "s",
+        "artifacts": [
+            {"id": "a", "content": "Autenticacion requerida", "location": "auth", "level": 0, "relevance": 1.0, "kind": "doc"},
+            {"id": "b", "content": "autenticacion  requerida!!!", "location": "auth", "level": 0, "relevance": 1.0, "kind": "doc"},
+        ],
+    }
+    divergent = {
+        "name": "s",
+        "artifacts": [
+            {"id": "a", "content": "autenticacion requerida", "location": "auth", "level": 0, "relevance": 1.0, "kind": "doc"},
+            {"id": "b", "content": "sin autenticacion", "location": "auth", "level": 0, "relevance": 1.0, "kind": "doc"},
+        ],
+    }
+    r_same = analyze_system(same, goal, Budget(tokens_remaining=10000, tool_remaining=20))
+    r_div = analyze_system(divergent, goal, Budget(tokens_remaining=10000, tool_remaining=20))
+    assert r_same["conflict_count"] == 0
+    assert r_div["conflict_count"] >= 1
+
+
+def test_q_g_invariant_holds_under_compression_and_breaks_on_eviction():
+    from argos_model import Belief, BeliefStore, Evidence, EvidenceStore, q_g_invariant
+
+    store = EvidenceStore()
+    ev = Evidence(id="e1", content="important", kind="doc", source="disk", location="l", level=0)
+    store.add(ev)
+    for i in range(2, 12):
+        store.add(Evidence(id=f"e{i}", content=f"filler {i}", kind="doc", source="disk", location=f"l{i}", level=0))
+    beliefs = BeliefStore()
+    beliefs._items.append(
+        Belief(
+            claim="c", confidence=0.9, status="supported",
+            provenance="e1", dependencies=("e1",),
+            scope="l", position=frozenset({"important"}),
+        )
+    )
+    assert q_g_invariant(store, beliefs) is True
+
+    store.compress(Budget(tokens_remaining=10000, tool_remaining=10), preserve_provenance=True, preserve_invariants=set())
+    assert sum(1 for e in store if e.compressed) >= 1
+    assert q_g_invariant(store, beliefs) is True  # digest -> traceability intact
+
+    store._items.remove(ev)  # simulate a destructive compressor (eviction)
+    assert q_g_invariant(store, beliefs) is False
+
+
 def test_non_functional_extractors_add_evidence():
     system = {
         "name": "nf",

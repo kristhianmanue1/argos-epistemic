@@ -10,6 +10,7 @@ from .algorithm import (
     EvidenceStore,
     Verification,
     analyze_system,
+    q_g_invariant,
     run,
 )
 from .callgraph import CallGraph, build_call_graph
@@ -33,6 +34,7 @@ __all__ = [
     "build_call_graph",
     "dynamic_artifact",
     "extract_system",
+    "q_g_invariant",
     "run_pytest",
     "run",
 ]
