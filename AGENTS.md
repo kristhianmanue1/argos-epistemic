@@ -19,7 +19,8 @@ implementación de referencia mínima y ejecutable del algoritmo de la sección 
 
 - Python 3.12 (Homebrew) mediante `.venv/bin/python` (ignorado por Git).
 - Dependencias declaradas en `requirements.txt` (runtime AN-KLA) y
-  `pyproject.toml` (extensión `dev` con `pytest` y `an-kla-memory`).
+  `pyproject.toml` (extensión `dev` con `pytest`, `an-kla-memory`, `ruff` y
+  `mypy`).
 - Para cualquier tarea AN-KLA usa siempre `.venv/bin/python -m an_kla ...`.
 
 ## Comandos habituales
@@ -40,5 +41,6 @@ implementación de referencia mínima y ejecutable del algoritmo de la sección 
   archivo `AN-KLA.md` no deben editarse manualmente.
 - Sin comentarios en código salvo solicitud expresa; documenta intención en
   `readme.md` o en docstrings breves.
-- No hay CI todavía: ejecuta `pytest` y el preflight AN-KLA antes de cerrar una
-  tarea material.
+- Hay CI (`.github/workflows/ci.yml`) con 7 gates: ruff, mypy, pytest, demo,
+  case-studies, benchmark y preflight AN-KLA. De todos modos ejecuta `pytest` y
+  el preflight localmente antes de cerrar una tarea material.
