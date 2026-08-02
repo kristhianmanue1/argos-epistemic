@@ -16,7 +16,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-
 _RUNNERS_BY_MANIFEST: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("package.json", "npm", ("npm", "test")),
     ("Cargo.toml", "cargo", ("cargo", "test", "--quiet")),

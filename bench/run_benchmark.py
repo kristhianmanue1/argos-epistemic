@@ -20,9 +20,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from argos_epistemic import Budget, analyze_system, embedding_semantic, lexical_semantic
-
-from bench import baselines, fixtures
+from argos_epistemic import (  # noqa: E402
+    Budget,
+    analyze_system,
+    embedding_semantic,
+    lexical_semantic,
+)
+from bench import baselines, fixtures  # noqa: E402
 
 
 def _gold_for_goal(goal, gold):
@@ -65,7 +69,6 @@ def run(dense: bool = False) -> str:
     for name, fix in fixtures.FIXTURES.items():
         gold = _gold_for_goal(fix["goal"], fix["gold"])
         arts = fix["artifacts"]
-        n = len(arts)
         k = max(1, len(gold))
 
         sel, cost, rep = _argos_selected(fix, fix["goal"], lexical_semantic, min_sources=2)
@@ -106,19 +109,9 @@ def run(dense: bool = False) -> str:
         rows.append((name, "random_k", *_pr(rnd, gold), baselines.cost(arts, rnd), None, None))
 
     argos_recalls = [r[3] for r in rows if r[1] == "argos(lex,k=2)"]
-    argos_costs = [r[4] for r in rows if r[1] == "argos(lex,k=2)"]
-    argos3_recalls = [r[3] for r in rows if r[1] == "argos(lex,k=3)"]
-    argos3_costs = [r[4] for r in rows if r[1] == "argos(lex,k=3)"]
     embed_recalls = [r[3] for r in rows if r[1] == "argos(embed)"]
-    embed_costs = [r[4] for r in rows if r[1] == "argos(embed)"]
-    full_costs = [r[4] for r in rows if r[1] == "full_read"]
     avg_argos_recall = sum(argos_recalls) / len(argos_recalls) if argos_recalls else 0.0
-    avg_argos_cost = sum(argos_costs) / len(argos_costs) if argos_costs else 0.0
-    avg_argos3_recall = sum(argos3_recalls) / len(argos3_recalls) if argos3_recalls else 0.0
-    avg_argos3_cost = sum(argos3_costs) / len(argos3_costs) if argos3_costs else 0.0
     avg_embed_recall = sum(embed_recalls) / len(embed_recalls) if embed_recalls else 0.0
-    avg_embed_cost = sum(embed_costs) / len(embed_costs) if embed_costs else 0.0
-    avg_full_cost = sum(full_costs) / len(full_costs) if full_costs else 1.0
     lines = [
         "# Benchmark (P2): selección de evidencia contra gold",
         "",

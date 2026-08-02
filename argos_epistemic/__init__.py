@@ -1,3 +1,4 @@
+from . import ts_extractors as _ts_extractors  # noqa: F401 (registers optional L3 extractors)
 from .algorithm import (
     Action,
     Belief,
@@ -19,15 +20,16 @@ from .callgraph import CallGraph, build_call_graph, build_multi_call_graph, regi
 from .dynamic import detect_runner, dynamic_artifact, run_pytest, run_tests
 from .extractors import analyze_path, embedding_semantic, extract_system, lexical_semantic
 from .history import git_log_summary, history_artifact
-from .logs import logs_artifact, tail_logs
+from .logs import logs_artifact
 from .sandbox import run_isolated, scrub_env
-from . import ts_extractors as _ts_extractors  # noqa: F401 (registers optional L3 extractors)
 
 try:
     from .dense_semantic import dense_semantic, dense_semantic_available
 except Exception:  # pragma: no cover - optional heavy dep absent at import time
     dense_semantic = None  # type: ignore[assignment]
-    dense_semantic_available = lambda: False  # type: ignore[assignment]
+
+    def dense_semantic_available() -> bool:
+        return False
 
 __all__ = [
     "Action",
@@ -41,8 +43,8 @@ __all__ = [
     "Evidence",
     "EvidenceStore",
     "Verification",
-    "analyze_system",
     "analyze_path",
+    "analyze_system",
     "build_call_graph",
     "build_multi_call_graph",
     "capacity_for_budget",
@@ -59,9 +61,9 @@ __all__ = [
     "propagate_confidence",
     "q_g_invariant",
     "register_l3_extractor",
+    "run",
     "run_isolated",
     "run_pytest",
     "run_tests",
     "scrub_env",
-    "run",
 ]

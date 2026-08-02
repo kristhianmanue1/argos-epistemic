@@ -12,6 +12,7 @@ grafo real.
 from __future__ import annotations
 
 import ast
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -73,7 +74,7 @@ class CallGraph:
             return {n_id: 0.0 for n_id in self.nodes}
         return {n_id: len(self.reachable(n_id)) / (n - 1) for n_id in self.nodes}
 
-    def production_subgraph(self) -> "CallGraph":
+    def production_subgraph(self) -> CallGraph:
         """Subgraph excluding test files (production-only view for R metrics)."""
         sub = CallGraph()
         for node_id, node in self.nodes.items():
@@ -85,7 +86,7 @@ class CallGraph:
                 sub.edges.add((caller, callee))
         return sub
 
-    def merge(self, other: "CallGraph") -> None:
+    def merge(self, other: CallGraph) -> None:
         for node_id, node in other.nodes.items():
             if node_id not in self.nodes:
                 self.add_node(node_id, node.file, node.name)
@@ -96,7 +97,7 @@ class _CallCollector(ast.NodeVisitor):
     def __init__(self) -> None:
         self.calls: list[str] = []
 
-    def visit_Call(self, node: ast.Call) -> None:  # noqa: N802
+    def visit_Call(self, node: ast.Call) -> None:
         func = node.func
         if isinstance(func, ast.Name):
             self.calls.append(func.id)
@@ -142,7 +143,7 @@ def build_call_graph(root: Path, py_files: list[Path]) -> CallGraph:
 # Pluggable L3 extractors: the MODEL is language-agnostic; each entry is a tool
 # that builds a CallGraph for one language from its files. Python's AST extractor
 # is bundled; other languages are registered externally (e.g. tree-sitter).
-L3_EXTRACTORS: dict[str, object] = {".py": build_call_graph}
+L3_EXTRACTORS: dict[str, Callable[..., CallGraph]] = {".py": build_call_graph}
 
 
 def register_l3_extractor(suffix: str, extractor) -> None:

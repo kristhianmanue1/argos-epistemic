@@ -1,4 +1,12 @@
-from argos_epistemic import Budget, Cost, analyze_path, analyze_system, build_call_graph, extract_system, run
+from argos_epistemic import (
+    Budget,
+    Cost,
+    analyze_path,
+    analyze_system,
+    build_call_graph,
+    extract_system,
+    run,
+)
 
 
 def test_run_terminates_and_synthesizes():
@@ -285,7 +293,7 @@ def test_git_log_summary_on_this_repo():
 
 
 def test_historical_verification_confidence():
-    from argos_epistemic import analyze_path, Budget
+    from argos_epistemic import Budget, analyze_path
 
     report = analyze_path(
         ".",
@@ -576,7 +584,6 @@ def test_l3_tree_sitter_javascript_when_available(tmp_path):
     (tmp_path / "mod.js").write_text(
         "function foo(){ bar(); }\nfunction bar(){ return 1; }\n", encoding="utf-8"
     )
-    import argos_epistemic  # ensure registration ran
     assert ".js" in L3_EXTRACTORS
     cg = build_multi_call_graph(tmp_path, [tmp_path / "mod.js"])
     ids = set(cg.nodes)
@@ -601,7 +608,7 @@ def test_detect_runner_by_manifest(tmp_path):
 
 def test_l3_is_pluggable_per_language(tmp_path):
     from argos_epistemic import build_multi_call_graph, register_l3_extractor
-    from argos_epistemic.callgraph import CallGraph, L3_EXTRACTORS
+    from argos_epistemic.callgraph import L3_EXTRACTORS, CallGraph
 
     (tmp_path / "mod.js").write_text("function foo(){ bar(); }\n", encoding="utf-8")
 
@@ -614,7 +621,7 @@ def test_l3_is_pluggable_per_language(tmp_path):
     register_l3_extractor(".js", fake_js)
     try:
         cg = build_multi_call_graph(tmp_path, [tmp_path / "mod.js"])
-        assert any("mod.js::foo" == n for n in cg.nodes)
+        assert any(n == "mod.js::foo" for n in cg.nodes)
     finally:
         L3_EXTRACTORS.pop(".js", None)
 

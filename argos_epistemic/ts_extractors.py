@@ -46,7 +46,7 @@ def _make_ts_extractor(get_language, suffix: str):
             funcs: list[str] = []
             calls: list[str] = []
 
-            def walk(node) -> None:
+            def walk(node, funcs, calls) -> None:
                 t = node.type
                 if "function" in t or "method" in t:
                     name = node.child_by_field_name("name")
@@ -57,9 +57,9 @@ def _make_ts_extractor(get_language, suffix: str):
                     if fn is not None:
                         calls.append(fn.text.decode().split(".")[-1])
                 for child in node.children:
-                    walk(child)
+                    walk(child, funcs, calls)
 
-            walk(tree.root_node)
+            walk(tree.root_node, funcs, calls)
             for fname in funcs:
                 node_id = f"{rel}::{fname}"
                 cg.add_node(node_id, rel, fname)

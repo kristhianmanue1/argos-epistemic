@@ -16,6 +16,8 @@ dependencies = []
 dev = [
     "pytest>=8",
     "an-kla-memory==0.1.0b1",
+    "ruff>=0.6",
+    "mypy>=1.11",
 ]
 languages = [
     "tree-sitter>=0.23",
@@ -33,3 +35,28 @@ packages = ["argos_epistemic"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+# E501 (line-length) queda como advisory: el código preexistente y los fixtures
+# tienen prosa en español y strings realistas >100. Imponerlo sería un refactor
+# de churn alto ajeno a la higiene de corrección (F/B/UP/I/SIM/RUF).
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# Fixtures llevan contenido de artefactos realista (prosa larga) por diseño.
+"bench/fixtures.py" = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+packages = ["argos_epistemic"]
+warn_unused_ignores = true
+warn_redundant_casts = true
+check_untyped_defs = true
+# La impl de referencia usa dict[str, Any] para system/goal/artifacts a propósito;
+# no perseguimos Any globalmente.
+disable_error_code = []

@@ -28,6 +28,8 @@ implementación de referencia mínima y ejecutable del algoritmo de la sección 
 - Demo del modelo: `.venv/bin/python -c "import argos_epistemic; print(argos_epistemic.run())"`
 - Preflight AN-KLA: `.venv/bin/python -m an_kla --project-root . context status`
 - Estado/verificación de memoria: `.venv/bin/python -m an_kla --project-root . status` y `... verify`
+- Lint: `.venv/bin/python -m ruff check argos_epistemic bench tests`
+- Tipado: `.venv/bin/python -m mypy argos_epistemic`
 
 ## Convenciones
 

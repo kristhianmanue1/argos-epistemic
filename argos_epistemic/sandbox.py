@@ -19,6 +19,7 @@ modo ``strict`` lo aprovecha cuando está presente; el modo por defecto
 
 from __future__ import annotations
 
+import contextlib
 import os
 import resource
 import shutil
@@ -39,10 +40,8 @@ def scrub_env(env: dict[str, str] | None = None) -> dict[str, str]:
 
 
 def _cpu_limit(seconds: int) -> None:
-    try:
+    with contextlib.suppress(ValueError, OSError):
         resource.setrlimit(resource.RLIMIT_CPU, (seconds, seconds))
-    except (ValueError, OSError):
-        pass
 
 
 def _wrap_isolation(cmd: list[str]) -> tuple[list[str], str | None]:
@@ -75,7 +74,7 @@ def run_isolated(
         if wrapper is None:
             degradation = "isolation_unavailable_no_firejail_or_bwrap"
     try:
-        proc = subprocess.Popen(  # noqa: S603
+        proc = subprocess.Popen(
             final_cmd,
             cwd=str(cwd),
             env=runner_env,

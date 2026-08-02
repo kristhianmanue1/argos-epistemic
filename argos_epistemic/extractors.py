@@ -15,9 +15,9 @@ from __future__ import annotations
 import math
 import time
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
-from .callgraph import CallGraph, build_call_graph, build_multi_call_graph, module_metrics
+from .callgraph import CallGraph, build_multi_call_graph, module_metrics
 
 DEFAULT_IGNORES = {
     ".git",
@@ -195,7 +195,7 @@ def embedding_semantic(artifact_text: str, goal_text: str) -> float:
     embedder (sentence-transformers / API) via ``semantic_fn``.
     """
     a, b = _hash_vec(artifact_text), _hash_vec(goal_text)
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=True))
     return max(0.0, min(1.0, (dot + 1.0) / 2.0))
 
 
@@ -397,7 +397,6 @@ def analyze_path(
     # runs when the budgeted loop selects the action (loader). Cost is estimated
     # from a size hint and observed from the real output.
     from .dynamic import detect_runner
-    from .history import git_log_summary
 
     def _deferred(aid, location, level, relevance, kind, method, loader):
         return {

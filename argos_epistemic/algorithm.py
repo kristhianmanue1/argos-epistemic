@@ -8,8 +8,9 @@ verificar que el algoritmo termina, decide y sintetiza un reporte trazable.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
+from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -19,7 +20,7 @@ class Cost:
     latency: float = 0.0
     compute: float = 0.0
 
-    def dominates(self, other: "Cost") -> bool:
+    def dominates(self, other: Cost) -> bool:
         return (
             self.tokens <= other.tokens
             and self.tool <= other.tool
@@ -130,7 +131,7 @@ class EvidenceStore:
     def __init__(self) -> None:
         self._items: list[Evidence] = []
 
-    def __iter__(self) -> Iterable[Evidence]:
+    def __iter__(self) -> Iterator[Evidence]:
         return iter(self._items)
 
     def __len__(self) -> int:
@@ -178,7 +179,7 @@ class BeliefStore:
     def __init__(self) -> None:
         self._items: list[Belief] = []
 
-    def __iter__(self) -> Iterable[Belief]:
+    def __iter__(self) -> Iterator[Belief]:
         return iter(self._items)
 
     def __len__(self) -> int:
@@ -219,7 +220,7 @@ class ConflictStore:
     def __init__(self) -> None:
         self._items: list[Conflict] = []
 
-    def __iter__(self) -> Iterable[Conflict]:
+    def __iter__(self) -> Iterator[Conflict]:
         return iter(self._items)
 
     def __len__(self) -> int:
@@ -260,7 +261,7 @@ class Action:
 
 
 def derive_goal_aspects(goal: dict[str, Any]) -> list[dict[str, Any]]:
-    aspects = []
+    aspects: list[dict[str, Any]] = []
     for raw in goal.get("aspects", []):
         if isinstance(raw, str):
             aspects.append({"name": raw, "weight": 1.0 / max(len(goal["aspects"]), 1)})
@@ -304,7 +305,7 @@ class PropositionStore:
     def __init__(self) -> None:
         self._items: list[Proposition] = []
 
-    def __iter__(self) -> Iterable[Proposition]:
+    def __iter__(self) -> Iterator[Proposition]:
         return iter(self._items)
 
     def __len__(self) -> int:
@@ -412,7 +413,7 @@ def derive_propositions(
 CORROBORATION = 1.8
 
 
-def aspect_score(props: list["Proposition"], corroboration: float = CORROBORATION) -> float:
+def aspect_score(props: list[Proposition], corroboration: float = CORROBORATION) -> float:
     """Coverage of one aspect (readme.md §12), calibrated to reward corroboration.
 
     ``score = clamp01( Σ_pos polarity·conf / corroboration )``: a single source
@@ -517,14 +518,12 @@ def should_stop(
 ) -> bool:
     theta = goal.get("theta_coverage", budget.theta_coverage)
     rho = goal.get("rho_risk", budget.rho_risk)
-    if (
+    return (
         coverage >= theta
         and residual_risk <= rho
         and not conflicts.critical()
         and breadth_ok
-    ):
-        return True
-    return False
+    )
 
 
 def prerequisites_satisfied(action: Action, evidence: EvidenceStore, beliefs: BeliefStore) -> bool:
@@ -714,7 +713,7 @@ def verify_evidence(
     system: dict[str, Any],
 ) -> Verification:
     override = _verification_from_run(
-        _find_artifact(system, evidence.id).get("run") if _find_artifact(system, evidence.id) else None
+        artifact.get("run") if (artifact := _find_artifact(system, evidence.id)) else None
     )
     if override is None:
         confidence = _confidence_for(method)
