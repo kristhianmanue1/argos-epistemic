@@ -319,6 +319,65 @@ def test_embedding_semantic_better_than_lexical_on_morphology():
     assert embedding_semantic(art, goal) > lexical_semantic(art, goal)
 
 
+def test_h2_negative_run_is_not_supported():
+    system = {
+        "name": "s",
+        "artifacts": [
+            {
+                "id": "L5:x",
+                "content": "runner=x rc=1 passed=0 failed=1",
+                "location": "(dynamic)",
+                "level": 5,
+                "relevance": 0.85,
+                "kind": "test-run",
+                "verification_method": "dynamic",
+                "run": {"runner": "x", "status": "contradicted", "returncode": 1,
+                        "passed": 0, "failed": 1, "errors": 0},
+            }
+        ],
+    }
+    goal = {"name": "g", "aspects": ["x"], "theta_coverage": 2.0, "rho_risk": 0.0}
+    report = analyze_system(system, goal, Budget(tokens_remaining=10000, tool_remaining=10))
+    concl = report["conclusions"][0]
+    assert concl["status"] == "contradicted"
+    assert concl["confidence"] <= 0.2
+    assert report["complete"] is False
+
+
+def test_h3_higher_relevance_same_cost_wins_utility():
+    from argos_epistemic import BeliefStore, ConflictStore, EvidenceStore
+    from argos_epistemic.algorithm import expected_utility, generate_candidate_actions
+
+    system = {
+        "artifacts": [
+            {"id": "lo", "content": "same content", "level": 1, "relevance": 0.1, "kind": "x"},
+            {"id": "hi", "content": "same content", "level": 1, "relevance": 1.0, "kind": "x"},
+        ]
+    }
+    goal = {"name": "g", "aspects": ["x"]}
+    actions = generate_candidate_actions(system, goal, EvidenceStore(), BeliefStore(), ConflictStore(), [])
+    by_id = {a.target_id: a for a in actions}
+    assert by_id["lo"].estimated_cost.tokens == by_id["hi"].estimated_cost.tokens
+    budget = Budget(tokens_remaining=1000, tool_remaining=10)
+    u_lo = expected_utility(by_id["lo"], goal, EvidenceStore(), BeliefStore(), budget)
+    u_hi = expected_utility(by_id["hi"], goal, EvidenceStore(), BeliefStore(), budget)
+    assert u_hi > u_lo
+
+
+def test_h6_compression_digest_is_stable_sha256():
+    import hashlib
+
+    from argos_epistemic import Evidence
+
+    e1 = Evidence(id="a", content="hello world", kind="x", source="d", location="l", level=0)
+    e2 = Evidence(id="b", content="hello world", kind="x", source="d", location="l", level=0)
+    e1.compress_in_place()
+    e2.compress_in_place()
+    expected = "phi:" + hashlib.sha256(b"hello world").hexdigest()[:16]
+    assert e1.digest == expected
+    assert e1.digest == e2.digest  # stable (not hash()-randomized)
+
+
 def test_l5_logs_artifact(tmp_path):
     from argos_epistemic import logs_artifact
 

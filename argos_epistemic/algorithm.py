@@ -70,8 +70,10 @@ class Evidence:
     def compress_in_place(self) -> None:
         if self.compressed:
             return
+        import hashlib
+
         original = str(self.content)
-        self.digest = f"phi:{abs(hash(original)) & 0xFFFFFFFF:08x}"
+        self.digest = "phi:" + hashlib.sha256(original.encode("utf-8")).hexdigest()[:16]
         self.content = f"<compressed:{self.digest}>"
         self.compressed = True
 
@@ -292,7 +294,8 @@ def compute_residual_risk(
         return 1.0
     avg_confidence = sum(b.confidence for b in beliefs) / len(beliefs)
     unknown_share = sum(1 for b in beliefs if b.status == "unknown") / len(beliefs)
-    return max(0.0, min(1.0, (1.0 - avg_confidence) * 0.7 + unknown_share * 0.3))
+    contradicted_share = sum(1 for b in beliefs if b.status == "contradicted") / len(beliefs)
+    return max(0.0, min(1.0, (1.0 - avg_confidence) * 0.7 + unknown_share * 0.3 + contradicted_share * 0.3))
 
 
 def _confidence_for(method: str) -> float:
@@ -325,6 +328,17 @@ def prerequisites_satisfied(action: Action, evidence: EvidenceStore, beliefs: Be
     return all(evidence.has(prereq) or any(prereq == b.claim for b in beliefs) for prereq in action.prerequisites)
 
 
+def _size_cost(content: Any, tool: int = 1) -> Cost:
+    """Cost reflects extraction size (chars->tokens), not epistemic relevance.
+
+    Relevance drives expected value (``expected_delta_*``); cost must represent
+    size/latency so that ``Utility = value/cost`` does not invert and penalize
+    high-relevance artifacts (readme.md §15, §16).
+    """
+    tokens = max(10, len(str(content)) // 4)
+    return Cost(tokens=tokens, tool=tool)
+
+
 def generate_candidate_actions(
     system: dict[str, Any],
     goal: dict[str, Any],
@@ -342,7 +356,7 @@ def generate_candidate_actions(
                 name=f"extract_L{artifact['level']}",
                 target_id=artifact["id"],
                 level=artifact["level"],
-                estimated_cost=Cost(tokens=int(50 * artifact.get("relevance", 1.0)), tool=1),
+                estimated_cost=_size_cost(artifact.get("content", "")),
                 verification_method=artifact.get("verification_method")
                 or ("deterministic" if artifact["level"] <= 2 else "symbolic"),
                 prerequisites=tuple(artifact.get("prerequisites", [])),
@@ -363,7 +377,7 @@ def generate_candidate_actions(
                     name=f"extract_nf:{nf}",
                     target_id=nf_id,
                     level=artifact["level"],
-                    estimated_cost=Cost(tokens=int(40 * artifact.get("relevance", 1.0)), tool=1),
+                    estimated_cost=_size_cost(artifact.get("content", "")),
                     verification_method="symbolic",
                     prerequisites=tuple(artifact.get("prerequisites", [])),
                     expected_delta_coverage=artifact.get("relevance", 0.1) * 0.15,
@@ -434,14 +448,45 @@ def normalize_evidence(result: ActionResult) -> Evidence:
     return result.evidence
 
 
+def _find_artifact(system: dict[str, Any], evidence_id: str) -> dict[str, Any] | None:
+    return next((a for a in system.get("artifacts", []) if a.get("id") == evidence_id), None)
+
+
+def _verification_from_run(run: dict[str, Any] | None) -> tuple[float, str] | None:
+    """Map a dynamic/logs/history run status to (confidence, epistemic status).
+
+    Returns None when there is no overriding run signal (fall back to method).
+    A failing suite or error-bearing logs must NOT become ``supported``: this is
+    the core §11 guarantee that negative evidence is preserved, not inverted.
+    """
+    if not isinstance(run, dict):
+        return None
+    status = run.get("status")
+    if status == "contradicted":
+        return 0.15, "contradicted"
+    if status == "unavailable":
+        return 0.0, "unknown"
+    if status == "weak":
+        return 0.4, "weak"
+    return None
+
+
 def verify_evidence(
     evidence: Evidence,
     method: str,
     system: dict[str, Any],
 ) -> Verification:
+    override = _verification_from_run(
+        _find_artifact(system, evidence.id).get("run") if _find_artifact(system, evidence.id) else None
+    )
+    if override is None:
+        confidence = _confidence_for(method)
+        status = "supported" if confidence >= 0.7 else "weak"
+    else:
+        confidence, status = override
     return Verification(
-        confidence=_confidence_for(method),
-        status="supported" if _confidence_for(method) >= 0.7 else "weak",
+        confidence=confidence,
+        status=status,
         provenance=evidence.id,
         method=method,
         timestamp=evidence.timestamp,
@@ -556,7 +601,8 @@ def synthesize_report(
             for b in beliefs
         ],
         "complete": coverage >= goal.get("theta_coverage", budget.theta_coverage)
-        and residual_risk <= goal.get("rho_risk", budget.rho_risk),
+        and residual_risk <= goal.get("rho_risk", budget.rho_risk)
+        and not any(b.status == "contradicted" for b in beliefs),
     }
 
 
