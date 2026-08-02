@@ -11,3 +11,8 @@ __pycache__/
 
 # macOS
 .DS_Store
+
+# Build/publish artifacts
+build/
+dist/
+*.egg-info/
