@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: pytest
+        run: python -m pytest -q
+      - name: Demo smoke
+        run: python -c "import argos_epistemic; r=argos_epistemic.run(); assert isinstance(r, dict) and 'coverage' in r"
+      - name: AN-KLA preflight (informational)
+        run: python -m an_kla --project-root . context status
+        continue-on-error: true
