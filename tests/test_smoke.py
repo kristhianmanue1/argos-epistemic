@@ -311,6 +311,26 @@ def test_run_isolated_basic_and_timeout(tmp_path):
     assert slow["returncode"] is None and slow["error"] == "TimeoutExpired"
 
 
+def test_l3_tree_sitter_javascript_when_available(tmp_path):
+    import importlib
+
+    from argos_epistemic import build_multi_call_graph
+    from argos_epistemic.callgraph import L3_EXTRACTORS
+
+    if importlib.util.find_spec("tree_sitter_javascript") is None:
+        import pytest
+        pytest.skip("tree-sitter-javascript not installed")
+    (tmp_path / "mod.js").write_text(
+        "function foo(){ bar(); }\nfunction bar(){ return 1; }\n", encoding="utf-8"
+    )
+    import argos_epistemic  # ensure registration ran
+    assert ".js" in L3_EXTRACTORS
+    cg = build_multi_call_graph(tmp_path, [tmp_path / "mod.js"])
+    ids = set(cg.nodes)
+    assert "mod.js::foo" in ids and "mod.js::bar" in ids
+    assert ("mod.js::foo", "mod.js::bar") in cg.edges
+
+
 def test_detect_runner_by_manifest(tmp_path):
     from argos_epistemic import detect_runner
 
@@ -349,9 +369,9 @@ def test_l3_is_pluggable_per_language(tmp_path):
 def test_l3_unknown_language_is_graceful(tmp_path):
     from argos_epistemic import build_multi_call_graph
 
-    (tmp_path / "mod.rs").write_text("fn main(){}\n", encoding="utf-8")
-    cg = build_multi_call_graph(tmp_path, [tmp_path / "mod.rs"])
-    assert len(cg.nodes) == 0  # no .rs extractor registered -> no L3, no crash
+    (tmp_path / "mod.lua").write_text("function main() end\n", encoding="utf-8")
+    cg = build_multi_call_graph(tmp_path, [tmp_path / "mod.lua"])
+    assert len(cg.nodes) == 0  # no .lua extractor registered -> no L3, no crash
 
 
 def test_impact_excludes_test_files():

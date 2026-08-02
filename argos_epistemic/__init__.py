@@ -19,6 +19,7 @@ from .dynamic import detect_runner, dynamic_artifact, run_pytest, run_tests
 from .extractors import analyze_path, extract_system, lexical_semantic
 from .history import git_log_summary, history_artifact
 from .sandbox import run_isolated, scrub_env
+from . import ts_extractors as _ts_extractors  # noqa: F401 (registers optional L3 extractors)
 
 __all__ = [
     "Action",
