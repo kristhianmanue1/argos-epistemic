@@ -8,7 +8,6 @@ pero requiere un repositorio git.
 
 from __future__ import annotations
 
-import subprocess
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
@@ -27,16 +26,15 @@ def git_log_summary(root: Path | str, max_entries: int = 100) -> dict[str, Any] 
         "--no-merges",
         f"-n {max_entries}",
         f"--format={_LOG_FMT}",
-        f"--date=short",
+        "--date=short",
     ]
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-    except (subprocess.TimeoutExpired, FileNotFoundError):
-        return None
-    if proc.returncode != 0:
+    from .sandbox import run_isolated
+
+    result = run_isolated(cmd, cwd=root, timeout=30, isolation="none")
+    if result["error"] or result["returncode"] != 0:
         return None
     entries: list[dict[str, str]] = []
-    for line in (proc.stdout or "").splitlines():
+    for line in (result["stdout"] or "").splitlines():
         parts = line.split("\x1f")
         if len(parts) < 4:
             continue

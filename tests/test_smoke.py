@@ -293,6 +293,24 @@ def test_historical_verification_confidence():
     assert hist and hist[0]["confidence"] == 0.8 and hist[0]["status"] == "supported"
 
 
+def test_scrub_env_drops_credentials():
+    from argos_epistemic import scrub_env
+
+    env = {"PATH": "/bin", "GITHUB_TOKEN": "x", "DB_PASSWORD": "y", "API_KEY": "z", "SAFE_VAR": "1"}
+    out = scrub_env(env)
+    assert "GITHUB_TOKEN" not in out and "DB_PASSWORD" not in out and "API_KEY" not in out
+    assert out["PATH"] == "/bin" and out["SAFE_VAR"] == "1"
+
+
+def test_run_isolated_basic_and_timeout(tmp_path):
+    from argos_epistemic import run_isolated
+
+    ok = run_isolated(["true"], cwd=tmp_path, timeout=10)
+    assert ok["returncode"] == 0 and ok["error"] is None
+    slow = run_isolated(["sleep", "5"], cwd=tmp_path, timeout=1)
+    assert slow["returncode"] is None and slow["error"] == "TimeoutExpired"
+
+
 def test_detect_runner_by_manifest(tmp_path):
     from argos_epistemic import detect_runner
 
