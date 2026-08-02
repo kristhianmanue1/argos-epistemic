@@ -23,6 +23,20 @@ calibración de confianza (Brier) queda pendiente.
 | math_lib | full_read | 0.667 | 1.0 | 66 | - | - |
 | math_lib | lexical_topk | 1.0 | 1.0 | 45 | - | - |
 | math_lib | random_k | 0.75 | 0.75 | 45 | - | - |
+| semantic_commerce | argos(lex,k=2) | 0.0 | 0.0 | 123 | 0.00 | False |
+| semantic_commerce | argos(lex,k=3) | 0.0 | 0.0 | 123 | 0.00 | False |
+| semantic_commerce | argos(embed) | 0.75 | 0.5 | 55 | 1.00 | True |
+| semantic_commerce | argos(noL3) | 0.0 | 0.0 | 0 | - | - |
+| semantic_commerce | full_read | 0.75 | 1.0 | 123 | - | - |
+| semantic_commerce | lexical_topk | 1.0 | 1.0 | 101 | - | - |
+| semantic_commerce | random_k | 0.667 | 0.667 | 93 | - | - |
+| semantic_lifecycle | argos(lex,k=2) | 0.0 | 0.0 | 123 | 0.00 | False |
+| semantic_lifecycle | argos(lex,k=3) | 0.0 | 0.0 | 123 | 0.00 | False |
+| semantic_lifecycle | argos(embed) | 0.5 | 0.333 | 47 | 1.00 | True |
+| semantic_lifecycle | argos(noL3) | 0.0 | 0.0 | 0 | - | - |
+| semantic_lifecycle | full_read | 0.75 | 1.0 | 123 | - | - |
+| semantic_lifecycle | lexical_topk | 1.0 | 1.0 | 103 | - | - |
+| semantic_lifecycle | random_k | 0.667 | 0.667 | 94 | - | - |
 
 ## Lectura
 - **argos(embed)** debe igualar o superar a los baselines en recall al
@@ -41,21 +55,21 @@ python bench/run_benchmark.py --check    # CI: falla si el reporte está stale
 
 ## Hallazgo (validación falsable)
 
-- **argos(lex, k=2)** (linker léxico + corroboration): recall medio
-  **1.00**, precision media alta, a **83** tokens
-  (≈100% de full_read). En estos fixtures
-  alcanza **precision y recall 1.0** (sin leer `util.py`/`colors.py`/`noise.py`)
-  → la calibración (corroboration + min_sources) funciona cuando el linker discrimina.
-- **Ablación embedding**: argos(embed) cae a recall **0.75** porque el
-  surrogate de char-n-gramas es NO discriminativo (~0.5 para todo, liga
-  `util.py` a 'auth').
-- **S_semantic denso real (medición auxiliar con `--dense` + extra `[semantic]`,
-  fuera de CI)**: `all-MiniLM-L6-v2` eleva el recall medio a **0.83** sobre las
-  0.75 del surrogate (auth_project 0.50→0.67; math_lib 1.00→1.00): un S_semantic
-  denso discrimina más. **Pero no supera al léxico (1.00)** en estos fixtures,
-  porque el gold es token-obvio (contiene 'auth'/'token'/'login') y el overlap
-  léxico ya es óptimo. El bottleneck migró del surrogate a los fixtures: demostrar
-  el beneficio denso requiere matches semánticos **sin** overlap léxico
-  (sinónimos, conceptos) — esta fila no la regenera `--check` (CI sin `[semantic]`).
-- `full_read` tiene recall 1.0 pero precision baja (lee basura); `lexical_topk`
-  iguala a argos pero necesita `k` hardcodeado, argos lo decide adaptativamente.
+- **argos(lex, k=2)** (linker léxico): recall medio **0.50** —
+  **1.0** en las fixtures token-obvias (auth/math, gold comparte tokens con el aspecto)
+  pero **0.0** en las semánticas (semantic_commerce/lifecycle, gold por sinónimos sin
+  overlap léxico). El linker léxico es frágil: sólo recupera con solapamiento de tokens.
+  La calibración (corroboration + min_sources) funciona cuando el linker discrimina,
+  pero no resuelve la ceguera léxica.
+- **Ablación embedding**: argos(embed) (char-n-gramas) recall medio **0.58**;
+  surrogate NO discriminativo (~0.5 para todo), enlaza distractors y satura coverage
+  (1.00 / complete=True) sin recuperar el gold mejor que el léxico.
+- **S_semantic denso real (medición auxiliar `--dense` + extra `[semantic]`, fuera de CI)**:
+  `all-MiniLM-L6-v2` recall medio **0.92** (auth 0.67, math 1.0, commerce 1.0, lifecycle
+  1.0) — el **único linker que funciona en ambas familias**. Donde el léxico colapsa
+  (semantic_*, recall 0.0), el denso recupera **precision 1.0 / recall 1.0**. **Confirma
+  el beneficio denso** que las fixtures token-obvias ocultaban: la ventaja aparece justo
+  cuando falta overlap léxico. Costo: requiere torch (extra `[semantic]`, no en CI); esta
+  fila no la regenera `--check`.
+- `full_read` recall 1.0 pero precision baja (lee distractores); `lexical_topk` iguala a
+  argos en token-obvias pero es degenerado en semánticas (scores 0) y necesita `k` hardcodeado.
