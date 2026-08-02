@@ -23,6 +23,7 @@ jobs:
         run: python -m pytest -q
       - name: Demo smoke
         run: python -c "import argos_epistemic; r=argos_epistemic.run(); assert isinstance(r, dict) and 'coverage' in r"
-      - name: AN-KLA preflight (informational)
+      - name: Case studies freshness
+        run: python examples/regenerate_case_studies.py --target argos --check
+      - name: AN-KLA preflight
         run: python -m an_kla --project-root . context status
-        continue-on-error: true

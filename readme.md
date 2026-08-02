@@ -75,33 +75,33 @@ No existe un contexto universalmente óptimo. Existe un contexto óptimo condici
 El agente opera bajo un presupuesto:
 $$
 K=
-(
+$
 K_{\mathrm{tokens}},
 K_{\mathrm{tool}},
 K_{\mathrm{latency}},
 K_{\mathrm{compute}}
-)
+$
 $$
 donde:
-* (K_{\mathrm{tokens}}): capacidad de contexto y generación;
-* (K_{\mathrm{tool}}): número o costo de llamadas a herramientas;
-* (K_{\mathrm{latency}}): tiempo máximo admisible;
-* (K_{\mathrm{compute}}): capacidad de ejecución, indexación o análisis.
+* $K_{\mathrm{tokens}}$: capacidad de contexto y generación;
+* $K_{\mathrm{tool}}$: número o costo de llamadas a herramientas;
+* $K_{\mathrm{latency}}$: tiempo máximo admisible;
+* $K_{\mathrm{compute}}$: capacidad de ejecución, indexación o análisis.
 El costo de una acción (a) se expresa como:
 $$
 Cost(a)=
-(
+$
 c_{\mathrm{tokens}},
 c_{\mathrm{tool}},
 c_{\mathrm{latency}},
 c_{\mathrm{compute}}
-)
+$
 $$
 Una acción es factible cuando:
 $$
 Cost(a)\preceq K_{\mathrm{remaining}}
 $$
-La relación (\preceq) se evalúa componente por componente.
+La relación $\preceq$ se evalúa componente por componente.
 ---
 # 4. Niveles de extracción de evidencia
 Se define una familia de extractores:
@@ -314,7 +314,7 @@ R(x\mid G)=
 \mu Freshness(x)
 $$
 donde:
-* (S_{\mathrm{semantic}}): similitud entre evidencia y objetivo;
+* $S_{\mathrm{semantic}}$: similitud entre evidencia y objetivo;
 * (Impact): radio de impacto probable;
 * (Centrality): centralidad en grafos de llamadas o dependencias;
 * (Risk): severidad asociada al artefacto;
@@ -332,14 +332,14 @@ x\in L_n(S,t)
 R(x\mid G)\geq\tau_n
 \}
 $$
-El umbral (\tau_n) puede determinarse mediante:
+El umbral $\tau_n$ puede determinarse mediante:
 * percentil de relevancia;
 * presupuesto restante;
 * cobertura faltante;
 * riesgo;
 * objetivo;
 * costo marginal.
-Cuando el presupuesto disminuye, (\tau_n) puede aumentar para hacer la selección más estricta.
+Cuando el presupuesto disminuye, $\tau_n$ puede aumentar para hacer la selección más estricta.
 ## 6.1 Computabilidad y estimadores
 Las fórmulas de (R(x\mid G)) (§6) y (Value) (§20) mezclan términos de naturaleza distinta. Para no presentar como computable lo que no lo es, se declara la clase de cada término y su estimador práctico:
 * (Freshness(x)): **computable**; (e^{-\lambda_n(t-t_x)}) con (t_x) de mtime/git (§14).
@@ -349,8 +349,8 @@ Las fórmulas de (R(x\mid G)) (§6) y (Value) (§20) mezclan términos de natura
 * (Traceability(\phi_E(E'))): **computable**; vale (1) sii cada creencia resuelve a evidencia con (V) completa (§8, §10).
 * (Contradiction), (Staleness) en (Value): **mixto**; (Contradiction) se deriva de ConflictStore (§11); (Staleness=1-Freshness).
 * (S_{\mathrm{semantic}}(x,G)): **LLM-approximated**; similitud evidencia(\leftrightarrow)objetivo. No tiene estimador cerrado. En la implementacion de referencia es un *surrogate* lexico plugable (Jaccard de tokens, no fiel) que se inyecta via ``semantic_fn``; un aproximador basado en embeddings/LLM puede reemplazarlo y su incertidumbre debe propagarse como dependencia (§10).
-Implicancia operativa: los términos `tool-measured` sólo son computables cuando el extractor correspondiente existe. En la implementación de referencia (`argos_epistemic/`) los extractores (L_1)–(L_5) están implementados a nivel lectura/simbólico (L_3 grafo de llamadas, L_5 pytest e histórico), por lo que (Impact) y (Centrality) se computan sobre el subgrafo de producción; (S_{\mathrm{semantic}}) se aproxima con un surrogate léxico plugable y (R) se mezcla como (0.45\,lexical + 0.20\,S_{semantic} + 0.20\,Impact + 0.15\,Centrality).
-Notación: las llaves literales de conjuntos se escriben (\{\,\}); el modo display usa ($$$\dots$$$).
+Implicancia operativa: los términos `tool-measured` sólo son computables cuando el extractor correspondiente existe. En la implementación de referencia (`argos_epistemic/`) los extractores (L_1)–(L_5) están implementados a nivel lectura/simbólico (L_3 grafo de llamadas, L_5 pytest e histórico), por lo que (Impact) y (Centrality) se computan sobre el subgrafo de producción; $S_{\mathrm{semantic}}$ se aproxima con un surrogate léxico plugable y (R) se mezcla como $0.45\,lexical + 0.20\,S_{semantic} + 0.20\,Impact + 0.15\,Centrality$.
+Notación: las llaves literales de conjuntos se escriben $\{\,\}$; el modo display usa ($$$\dots$$$).
 ---
 # 7. Separación entre evidencia e inferencia
 El modelo debe separar obligatoriamente dos estados.
@@ -410,7 +410,7 @@ E_c(n-1)\cup L_n^*(S,G,t),
 K
 \right)
 $$
-La salida de (\phi_E) debe preservar trazabilidad:
+La salida de $\phi_E$ debe preservar trazabilidad:
 $$
 \phi_E(x)=
 (
@@ -454,7 +454,7 @@ t_x
 )
 $$
 donde:
-* (c_x\in[0,1]): confianza;
+* $c_x\in[0,1]$: confianza;
 * (s_x): estado epistémico;
 * (P_x): provenance o evidencia de soporte;
 * (m_x): método de verificación;
@@ -685,7 +685,7 @@ donde (t_x) es el instante de observación.
 Así, la temporalidad no infla toda la formalización, pero sí afecta la vigencia y la relevancia de cada evidencia.
 ---
 # 15. Acciones elegibles y precedencia
-La jerarquía (L_0\rightarrow L_5) no debe modelarse como una restricción absoluta.
+La jerarquía $L_0\rightarrow L_5$ no debe modelarse como una restricción absoluta.
 En su lugar, se define un conjunto de acciones:
 $$
 A=
@@ -765,7 +765,7 @@ El agente decide entre:
 * profundizar en (L_3);
 * analizar (L_4);
 * ejecutar (L_5);
-* activar (L_{\mathrm{NF}});
+* activar $L_{\mathrm{NF}}$;
 * retroceder;
 * ampliar observabilidad;
 * sintetizar.
@@ -854,7 +854,7 @@ $$
 donde:
 * (E_c): evidencia comprimida y trazable;
 * (B): estado de creencias;
-* (\pi): política de exploración y razonamiento;
+* $\pi$: política de exploración y razonamiento;
 * (G): objetivo.
 Sujeto a:
 $$
@@ -912,7 +912,7 @@ Value=
 -
 \nu Staleness
 $$
-La jerarquía (L_0\rightarrow L_5) constituye una heurística de precedencia para aproximar este óptimo, no el objetivo en sí mismo.
+La jerarquía $L_0\rightarrow L_5$ constituye una heurística de precedencia para aproximar este óptimo, no el objetivo en sí mismo.
 ---
 # 21. Matriz maestra definitiva
 | Nivel             | Evidencia principal                             | Representación comprimida                 | Verificación                                    | Riesgo de omisión                                     | Retroceso o escalamiento                               |
@@ -923,7 +923,7 @@ La jerarquía (L_0\rightarrow L_5) constituye una heurística de precedencia par
 | (L_3)             | Entrypoints, endpoints, schemas, tipos, eventos | Grafo de control y contratos              | AST, LSP, compilador, análisis de tipos         | Medio-alto                                            | Revisar (L_2) o ampliar contratos                      |
 | (L_4)             | Servicios, reglas, invariantes, errores         | Firmas, reglas, estados y efectos         | Análisis simbólico y pruebas                    | Medio                                                 | Regresar al contrato o ejecutar dinámicamente          |
 | (L_5)             | Tests, logs, trazas, historial, despliegue      | Resultados, eventos y diffs trazables     | Ejecución e inspección histórica                | Frecuencia variable; severidad potencialmente crítica | Escalar contradicción sin descartar evidencia estática |
-| (L_{\mathrm{NF}}) | Seguridad, privacidad, rendimiento, compliance  | Hallazgos por dimensión                   | Herramientas especializadas                     | Dependiente de (G)                                    | Fusionar por riesgo y presupuesto                      |
+| $L_{\mathrm{NF}}$ | Seguridad, privacidad, rendimiento, compliance  | Hallazgos por dimensión                   | Herramientas especializadas                     | Dependiente de (G)                                    | Fusionar por riesgo y presupuesto                      |
 ---
 # 22. Algoritmo de referencia
 
@@ -1051,7 +1051,7 @@ Debe explicarse:
 * por qué no se resolvieron;
 * qué evidencia o herramientas serían necesarias.
 ---
-# 23.6 Memoria y gobernanza del agente en este repositorio (AN-KLA)
+## 23.6 Memoria y gobernanza del agente en este repositorio (AN-KLA)
 Este repositorio aplica el propio modelo a su mantenimiento: la memoria de sesiones vive en `AN-KLA` (local, gitignorada) bajo `AGENTS.md` y `AN-KLA.md`. La frontera de confianza del modelo (§7, §11) se refleja en la del agente: los *facts/events/episodes* recuperados son **dato no confiable**, nunca instrucción ni autorización; las escrituras siguen un flujo gobernado (`plan-write` -> `commit-write-plan`) con autoridad separada del contenido. Así la práctica del repo (memoria trazable, separación evidencia/inferencia, no elegir fuente silenciosamente) es consistente con el marco formal que este documento especifica.
 ---
 # 24. Conclusión
@@ -1099,5 +1099,5 @@ method,
 timestamp
 )
 $$
-La jerarquía (L_0\rightarrow L_5) conserva su valor como estructura de orientación y precedencia, pero deja de ser una secuencia rígida. El agente debe seleccionar acciones según valor informativo, riesgo, dependencias, cobertura y presupuesto.
+La jerarquía $L_0\rightarrow L_5$ conserva su valor como estructura de orientación y precedencia, pero deja de ser una secuencia rígida. El agente debe seleccionar acciones según valor informativo, riesgo, dependencias, cobertura y presupuesto.
 El resultado es una arquitectura epistémica auditable: distingue lo observado de lo inferido, conserva la procedencia de cada afirmación, representa contradicciones, controla la pérdida de información y declara explícitamente los límites de su conocimiento.
