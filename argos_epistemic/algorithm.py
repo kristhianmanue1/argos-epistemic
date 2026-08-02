@@ -367,7 +367,11 @@ def link_aspects(
             if name:
                 out[str(name)] = float(entry.get("strength", 1.0)) if isinstance(entry, dict) else 1.0
         return out
-    threshold = goal.get("link_threshold", 0.05)
+    threshold = goal.get("link_threshold")
+    if threshold is None:
+        from .extractors import default_link_threshold
+
+        threshold = default_link_threshold(linker)
     content = str(artifact.get("content", "")) + " " + str(artifact.get("id", ""))
     return {
         aspect: strength

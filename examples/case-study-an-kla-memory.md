@@ -13,13 +13,13 @@ Objetivo `G=auditoria-memoria`, aspectos `['memory', 'write', 'retrieval', 'cano
 ## Reporte
 
 ```text
-evidence_count  : 3
-proposition_count: 15
-coverage        : 1.0
+evidence_count  : 49
+proposition_count: 55
+coverage        : 0.8
 residual_risk   : 0.0
 complete        : True
-levels_covered  : [2, 4]
-aspect_scores   : {'memory': 1.0, 'write': 1.0, 'retrieval': 1.0, 'canonical': 1.0, 'test': 1.0}
+levels_covered  : [0, 1, 2, 3, 4, 5]
+aspect_scores   : {'memory': 1.0, 'write': 0.6667, 'retrieval': 1.0, 'canonical': 0.3333, 'test': 1.0}
 ```
 
 ## Interpretación y riesgo residual

@@ -24,7 +24,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from argos_epistemic import Budget, analyze_system, embedding_semantic, extract_system
+from argos_epistemic import (
+    Budget,
+    analyze_system,
+    dense_semantic,
+    dense_semantic_available,
+    embedding_semantic,
+    extract_system,
+    lexical_semantic,
+)
+
+# Linker para casos tercerizados: denso si [semantic] disponible (discriminativo),
+# si no léxico. Se evita el surrogate embedding_semantic (suelo ~0.5): sobre-enlaza
+# artefactos irrelevantes (.gitignore -> 'memory') e infla coverage.
+_TP_LINKER = dense_semantic if dense_semantic_available() else lexical_semantic
+_TP_THRESHOLD = 0.60 if dense_semantic_available() else 0.10
 
 ARGOS_GOAL = {
     "name": "refactorizacion",
@@ -32,8 +46,11 @@ ARGOS_GOAL = {
     "non_functional": ["sec"],
     "theta_coverage": 0.8,
     "rho_risk": 0.25,
+    # embedding_semantic (surrogate) SÍ discrimina a threshold alto (0.55): el
+    # suelo ~0.5 queda por debajo y no enlaza ruido (.gitignore). Determinista y
+    # sin torch -> CI reproducible. (Denso se reserva para casos tercerizados.)
     "aspect_linker": embedding_semantic,
-    "link_threshold": 0.30,
+    "link_threshold": 0.55,
 }
 MARKUPSAFE_GOAL = {
     "name": "seguridad-y-refactor",
@@ -41,8 +58,8 @@ MARKUPSAFE_GOAL = {
     "non_functional": ["sec"],
     "theta_coverage": 0.8,
     "rho_risk": 0.25,
-    "aspect_linker": embedding_semantic,
-    "link_threshold": 0.30,
+    "aspect_linker": _TP_LINKER,
+    "link_threshold": _TP_THRESHOLD,
 }
 ANKLA_GOAL = {
     "name": "auditoria-memoria",
@@ -50,8 +67,8 @@ ANKLA_GOAL = {
     "non_functional": ["sec"],
     "theta_coverage": 0.8,
     "rho_risk": 0.25,
-    "aspect_linker": embedding_semantic,
-    "link_threshold": 0.30,
+    "aspect_linker": _TP_LINKER,
+    "link_threshold": _TP_THRESHOLD,
 }
 
 # Casos tercerizados: se clonan shallow desde su origin público (reproducible,
@@ -110,7 +127,8 @@ def _by_kind(system):
 
 
 def _run(root, goal):
-    system = extract_system(root, goal=goal, semantic_fn=embedding_semantic)
+    linker = goal.get("aspect_linker") or lexical_semantic
+    system = extract_system(root, goal=goal, semantic_fn=linker)
     report = analyze_system(system, goal, Budget(tokens_remaining=200000, tool_remaining=2000))
     return system, report
 

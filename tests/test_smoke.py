@@ -851,3 +851,35 @@ def test_l4_known_signal_from_this_repo():
     }
     es = b["argos_epistemic/extractors.py::extract_system"]
     assert "NotADirectoryError" in es.raises
+
+
+def test_default_link_threshold_calibrated_per_linker():
+    from argos_epistemic import default_link_threshold, embedding_semantic, lexical_semantic
+    from argos_epistemic.extractors import dense_semantic
+
+    # léxico (Jaccard, rango [0,1]): threshold bajo; denso y surrogate (rango
+    # ~[0.5,0.65]): threshold alto o enlazan ruido; desconocido -> default bajo.
+    assert default_link_threshold(lexical_semantic) == 0.05
+    assert default_link_threshold(embedding_semantic) == 0.55
+    assert default_link_threshold(dense_semantic) == 0.60
+    assert default_link_threshold(lambda a, b: 0.5) == 0.05
+
+
+def test_default_semantic_uses_dense_when_available_else_lexical():
+    from argos_epistemic import default_semantic, dense_semantic_available, lexical_semantic
+    from argos_epistemic.extractors import dense_semantic
+
+    if dense_semantic_available():
+        assert default_semantic() is dense_semantic
+    else:
+        assert default_semantic() is lexical_semantic
+
+
+def test_linker_threshold_mismatch_no_longer_overlinks_noise():
+    # Repro del bug del caso an-kla-memory: el surrogate a threshold bajo enlazaba
+    # ruido (.gitignore). Con default_link_threshold(embedding)=0.55, el suelo
+    # ~0.5 del surrogate queda por debajo y NO enlaza.
+    from argos_epistemic import embedding_semantic
+
+    noise = "*.pyc\n__pycache__/\n.env\n"  # un .gitignore típico
+    assert embedding_semantic(noise, "memory") < 0.55  # por debajo del threshold -> no enlace

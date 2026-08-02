@@ -19,7 +19,14 @@ from .algorithm import (
 from .behavior import FuncBehavior, behavior_summary, extract_behavior
 from .callgraph import CallGraph, build_call_graph, build_multi_call_graph, register_l3_extractor
 from .dynamic import detect_runner, dynamic_artifact, run_pytest, run_tests
-from .extractors import analyze_path, embedding_semantic, extract_system, lexical_semantic
+from .extractors import (
+    analyze_path,
+    default_link_threshold,
+    default_semantic,
+    embedding_semantic,
+    extract_system,
+    lexical_semantic,
+)
 from .history import git_log_summary, history_artifact
 from .logs import logs_artifact
 from .sandbox import run_isolated, scrub_env
@@ -51,6 +58,8 @@ __all__ = [
     "build_call_graph",
     "build_multi_call_graph",
     "capacity_for_budget",
+    "default_link_threshold",
+    "default_semantic",
     "dense_semantic",
     "dense_semantic_available",
     "detect_runner",

@@ -19,6 +19,7 @@ from typing import Any
 
 from .behavior import behavior_artifact, behavior_summary, extract_behavior
 from .callgraph import CallGraph, build_multi_call_graph, module_metrics
+from .dense_semantic import dense_semantic, dense_semantic_available
 
 DEFAULT_IGNORES = {
     ".git",
@@ -200,6 +201,27 @@ def embedding_semantic(artifact_text: str, goal_text: str) -> float:
     return max(0.0, min(1.0, (dot + 1.0) / 2.0))
 
 
+def default_semantic():
+    """Linker semántico por defecto: denso (sentence-transformers) si está
+    disponible, si no léxico. Nunca el surrogate de char-n-gramas
+    (``embedding_semantic``), cuyo suelo ~0.5 lo hace no discriminativo y
+    sobre-enlaza artefactos irrelevantes (.gitignore -> 'memory')."""
+    return dense_semantic if dense_semantic_available() else lexical_semantic
+
+
+def default_link_threshold(linker) -> float:
+    """Threshold calibrado al linker: léxico (Jaccard) opera en [0,1] con valores
+    bajos significativos; embedding/denso operan en ~[0.5,0.65] y necesitan un
+    threshold alto (~0.55-0.60) o sobre-enlazan ruido. Identidad por función."""
+    if linker is lexical_semantic:
+        return 0.05
+    if linker is dense_semantic:
+        return 0.60
+    if linker is embedding_semantic:
+        return 0.55
+    return 0.05
+
+
 def _goal_text(goal: dict[str, Any]) -> str:
     return " ".join(str(a) for a in goal.get("aspects", [])) + " " + str(goal.get("name", ""))
 
@@ -298,7 +320,7 @@ def extract_system(
     cg = build_multi_call_graph(root, files)
     metrics = module_metrics(cg)
     behaviors = extract_behavior(root, files)
-    sim = semantic_fn or lexical_semantic
+    sim = semantic_fn or default_semantic()
     now = time.time()
     artifacts: list[dict[str, Any]] = [
         {
