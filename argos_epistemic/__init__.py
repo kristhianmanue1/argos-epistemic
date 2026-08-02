@@ -22,6 +22,12 @@ from .logs import logs_artifact, tail_logs
 from .sandbox import run_isolated, scrub_env
 from . import ts_extractors as _ts_extractors  # noqa: F401 (registers optional L3 extractors)
 
+try:
+    from .dense_semantic import dense_semantic, dense_semantic_available
+except Exception:  # pragma: no cover - optional heavy dep absent at import time
+    dense_semantic = None  # type: ignore[assignment]
+    dense_semantic_available = lambda: False  # type: ignore[assignment]
+
 __all__ = [
     "Action",
     "Belief",
@@ -39,6 +45,8 @@ __all__ = [
     "build_call_graph",
     "build_multi_call_graph",
     "capacity_for_budget",
+    "dense_semantic",
+    "dense_semantic_available",
     "detect_runner",
     "dynamic_artifact",
     "embedding_semantic",

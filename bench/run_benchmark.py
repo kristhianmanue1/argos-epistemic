@@ -60,7 +60,7 @@ def _strip_l3(system):
     return s
 
 
-def run() -> str:
+def run(dense: bool = False) -> str:
     rows = []
     for name, fix in fixtures.FIXTURES.items():
         gold = _gold_for_goal(fix["goal"], fix["gold"])
@@ -85,6 +85,16 @@ def run() -> str:
         p_n, r_n = _pr(sel_n, gold)
         cost_n = baselines.cost(arts, sel_n)
         rows.append((name, "argos(noL3)", p_n, r_n, cost_n, None, None))
+
+        if dense:
+            from argos_epistemic import dense_semantic, dense_semantic_available
+
+            if dense_semantic_available():
+                g2 = copy.deepcopy(fix["goal"])
+                g2["link_threshold"] = 0.60
+                sel_d, cost_d, rep_d = _argos_selected(fix, g2, dense_semantic, min_sources=2)
+                p_d, r_d = _pr(sel_d, gold)
+                rows.append((name, "argos(dense)", p_d, r_d, cost_d, rep_d["coverage"], rep_d["complete"]))
 
         full = baselines.full_read(arts, fix["goal"])
         rows.append((name, "full_read", *_pr(full, gold), baselines.cost(arts, full), None, None))
@@ -168,9 +178,10 @@ def run() -> str:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true")
+    ap.add_argument("--dense", action="store_true", help="add sentence-transformers dense S_semantic row (needs [semantic] extra)")
     args = ap.parse_args()
     out = (ROOT / "bench" / "report.md").read_text(encoding="utf-8") if args.check else None
-    fresh = run()
+    fresh = run(dense=args.dense) if not args.check else run(dense=False)
     if args.check:
         if out.strip() != fresh.strip():
             print("bench/report.md is stale; run bench/run_benchmark.py", file=sys.stderr)

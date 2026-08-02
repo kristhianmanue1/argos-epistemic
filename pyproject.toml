@@ -24,6 +24,9 @@ languages = [
     "tree-sitter-go>=0.23",
     "tree-sitter-rust>=0.23",
 ]
+semantic = [
+    "sentence-transformers>=2.7",
+]
 
 [tool.setuptools]
 packages = ["argos_epistemic"]
