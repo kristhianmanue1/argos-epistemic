@@ -2,25 +2,25 @@
 
 > Generado por `examples/regenerate_case_studies.py` desde el pipeline actual (no escrito a mano). El sistema analizado es el propio repositorio; es un *autoestudio*, lo que limita la independencia (ver caso markupsafe).
 
-Tests en verde: **43**. Objetivo `G=refactorizacion`, aspectos `['algorithm', 'config', 'test', 'doc']`, NF `['sec']`, θ=0.8, ρ=0.25.
+Tests en verde: **51**. Objetivo `G=refactorizacion`, aspectos `['algorithm', 'config', 'test', 'doc']`, NF `['sec']`, θ=0.8, ρ=0.25.
 
 ## Extracción (discovery barato + índice L3)
 
-- Artefactos descubiertos: **23** (por nivel `{0: 3, 1: 1, 2: 4, 3: 1, 4: 13, 5: 1}`, por tipo `{'topology': 1, 'callgraph': 1, 'config': 4, 'doc': 6, 'code': 10, 'test': 1}`).
-- Grafo de llamadas L3 (Python AST, subgrafo de producción): 158 nodos / 226 aristas (113 producción). Top impacto: analyze_path (0.714), main (0.634), _argos_md (0.616), _markupsafe_md (0.607).
+- Artefactos descubiertos: **29** (por nivel `{0: 3, 1: 1, 2: 4, 3: 1, 4: 19, 5: 1}`, por tipo `{'topology': 1, 'callgraph': 1, 'config': 4, 'doc': 7, 'code': 15, 'test': 1}`).
+- Grafo de llamadas L3 (Python AST, subgrafo de producción): 188 nodos / 272 aristas (134 producción). Top impacto: main (0.669), _argos_md (0.654), _markupsafe_md (0.647), analyze_path (0.639).
 
 ## Reporte
 
 ```text
-evidence_count  : 1
-proposition_count: 4
-conflict_count  : 0
-coverage        : 0.9
+evidence_count  : 3
+proposition_count: 12
+conflict_count  : 4
+coverage        : 1.0
 residual_risk   : 0.0
 complete        : True
-levels_covered  : [2]
-aspect_scores   : {'algorithm': 0.9, 'config': 0.9, 'test': 0.9, 'doc': 0.9}
-cost            : estimated=10 observed=10
+levels_covered  : [2, 4]
+aspect_scores   : {'algorithm': 1.0, 'config': 1.0, 'test': 1.0, 'doc': 1.0}
+cost            : estimated=65 observed=65
 ```
 
 ## Interpretación
@@ -33,4 +33,4 @@ El bucle presupuestado selecciona evidencia por utilidad (valor/costo) y detiene
 - **`S_semantic` surrogate**: se usa el embedding léxico (char-n-gramas), no denso; sesión del LLM/transformers queda pendiente.
 - **Discovery no presupuestado**: la lectura de archivos y el índice L3 se pagan antes del bucle (el grafo alimenta `R` para la selección); sólo el contenido por-objetivo y los extractores subprocess son perezosos.
 
-_Generado desde HEAD del pipeline. raw report: `{"evidence_count": 1, "proposition_count": 4, "coverage": 0.9, "residual_risk": 0.0, "complete": true}`_
+_Generado desde HEAD del pipeline. raw report: `{"evidence_count": 3, "proposition_count": 12, "coverage": 1.0, "residual_risk": 0.0, "complete": true}`_

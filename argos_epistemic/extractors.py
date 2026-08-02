@@ -249,6 +249,40 @@ def _topology(root: Path, files: list[Path]) -> str:
     return "\n".join(_rel(root, p) for p in files[:500])
 
 
+def _file_artifact(
+    rel: str,
+    path: Path,
+    content: str,
+    level: int,
+    kind: str,
+    goal: dict[str, Any],
+    metrics: dict[str, dict[str, float]] | None,
+    sim,
+    now: float,
+) -> dict[str, Any]:
+    """Artefacto de fichero real con el blend unificado de R (§6 + §14):
+    lexical + S_semantic + impact + centrality + freshness. Impact/centrality
+    son 0 cuando el fichero no está en el grafo de llamadas de producción
+    (docs, configs, código no parseado) -> el blend es simétrico entre niveles."""
+    mtime = path.stat().st_mtime
+    relevance, s_sem, impact, centrality, fresh = _blend_relevance(
+        rel, content, goal, metrics, sim, level=level, t_x=mtime, t_now=now
+    )
+    return {
+        "id": rel,
+        "content": content,
+        "location": rel,
+        "level": level,
+        "relevance": relevance,
+        "kind": kind,
+        "s_semantic": s_sem,
+        "impact": impact,
+        "centrality": centrality,
+        "freshness": fresh,
+        "timestamp": int(mtime),
+    }
+
+
 def extract_system(
     root: Path | str,
     goal: dict[str, Any] | None = None,
@@ -272,36 +306,20 @@ def extract_system(
             "level": 1,
             "relevance": 0.7,
             "kind": "topology",
+            "freshness": 1.0,
+            "timestamp": int(now),
         }
     ]
-    artifacts.append(_callgraph_artifact(cg))
+    artifacts.append(_callgraph_artifact(cg, now))
     code_seen = 0
     for path in files:
         rel = _rel(root, path)
         base = path.name.lower()
         content = _read(path)
         if base in L0_NAMES or (path.suffix == ".md" and base.startswith("readme")):
-            artifacts.append(
-                {
-                    "id": rel,
-                    "content": content,
-                    "location": rel,
-                    "level": 0,
-                    "relevance": _relevance(rel, goal),
-                    "kind": "doc",
-                }
-            )
+            artifacts.append(_file_artifact(rel, path, content, 0, "doc", goal, metrics, sim, now))
         elif base in L2_NAMES or path.name.lower().endswith(L2_SUFFIXES):
-            artifacts.append(
-                {
-                    "id": rel,
-                    "content": content,
-                    "location": rel,
-                    "level": 2,
-                    "relevance": _relevance(rel, goal),
-                    "kind": "config",
-                }
-            )
+            artifacts.append(_file_artifact(rel, path, content, 2, "config", goal, metrics, sim, now))
         elif path.suffix in L4_SUFFIXES or path.suffix == ".md":
             if code_seen >= MAX_CODE_ARTIFACTS:
                 continue
@@ -309,23 +327,7 @@ def extract_system(
             is_test = "test" in base or rel.lower().startswith(("tests/", "test/", "spec/"))
             kind = "test" if is_test else ("doc" if path.suffix == ".md" else "code")
             level = 5 if is_test else 4
-            mtime = path.stat().st_mtime
-            relevance, s_sem, impact, centrality, fresh = _blend_relevance(
-                rel, content, goal, metrics, sim, level=level, t_x=mtime, t_now=now
-            )
-            artifact: dict[str, Any] = {
-                "id": rel,
-                "content": content,
-                "location": rel,
-                "level": level,
-                "relevance": relevance,
-                "kind": kind,
-                "s_semantic": s_sem,
-                "impact": impact,
-                "centrality": centrality,
-                "freshness": fresh,
-                "timestamp": int(mtime),
-            }
+            artifact = _file_artifact(rel, path, content, level, kind, goal, metrics, sim, now)
             nf = _non_functional(rel)
             if nf:
                 artifact["nf"] = nf
@@ -333,7 +335,7 @@ def extract_system(
     return {"name": root.name, "artifacts": artifacts, "call_graph": _callgraph_summary(cg)}
 
 
-def _callgraph_artifact(cg: CallGraph) -> dict[str, Any]:
+def _callgraph_artifact(cg: CallGraph, now: float = 0.0) -> dict[str, Any]:
     prod = cg.production_subgraph()
     cent = prod.centrality()
     imp = prod.impact()
@@ -352,6 +354,8 @@ def _callgraph_artifact(cg: CallGraph) -> dict[str, Any]:
         "level": 3,
         "relevance": 0.8,
         "kind": "callgraph",
+        "freshness": 1.0,
+        "timestamp": int(now),
     }
 
 

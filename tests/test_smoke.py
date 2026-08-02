@@ -770,3 +770,28 @@ def test_s14_freshness_is_deterministic_within_run():
     f1 = {a["id"]: a.get("freshness") for a in s1["artifacts"] if "freshness" in a}
     f2 = {a["id"]: a.get("freshness") for a in s2["artifacts"] if "freshness" in a}
     assert f1 == f2  # granularidad por día -> estable dentro del mismo día
+
+
+def test_s14_freshness_symmetric_across_levels():
+    # §14 freshness debe ser transversal: todo artefacto lleva freshness+timestamp.
+    system = extract_system(".", goal={"name": "refactor", "aspects": ["algorithm"]})
+    by_id = {a["id"]: a for a in system["artifacts"]}
+    # agregados sintéticos (L1/L3): computed-now -> freshness 1.0
+    assert by_id["L1:topology"]["freshness"] == 1.0
+    assert by_id["L1:topology"]["timestamp"] > 0
+    assert by_id["L3:callgraph"]["freshness"] == 1.0
+    assert by_id["L3:callgraph"]["timestamp"] > 0
+    # ficheros reales por nivel (L0 doc, L2 config, L4 code): freshness por mtime
+    for aid, lvl in [("readme.md", 0), ("pyproject.toml", 2),
+                     ("argos_epistemic/algorithm.py", 4)]:
+        art = by_id[aid]
+        assert art["level"] == lvl, aid
+        assert "freshness" in art and "timestamp" in art, aid
+        assert 0.0 <= art["freshness"] <= 1.0, aid
+        assert art["timestamp"] > 0, aid
+        # el blend unificado expone s_semantic/impact/centrality en todos los niveles
+        for fld in ("s_semantic", "impact", "centrality"):
+            assert fld in art, (aid, fld)
+    # ningún artefacto sin campo freshness
+    missing = [a["id"] for a in system["artifacts"] if "freshness" not in a]
+    assert missing == []
