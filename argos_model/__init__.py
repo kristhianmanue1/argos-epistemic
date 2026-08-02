@@ -12,6 +12,7 @@ from .algorithm import (
     analyze_system,
     run,
 )
+from .callgraph import CallGraph, build_call_graph
 from .extractors import analyze_path, extract_system
 
 __all__ = [
@@ -19,6 +20,7 @@ __all__ = [
     "Belief",
     "BeliefStore",
     "Budget",
+    "CallGraph",
     "Conflict",
     "ConflictStore",
     "Cost",
@@ -27,6 +29,7 @@ __all__ = [
     "Verification",
     "analyze_system",
     "analyze_path",
+    "build_call_graph",
     "extract_system",
     "run",
 ]

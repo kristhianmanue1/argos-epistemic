@@ -1,4 +1,4 @@
-from argos_model import Budget, Cost, analyze_path, analyze_system, extract_system, run
+from argos_model import Budget, Cost, analyze_path, analyze_system, build_call_graph, extract_system, run
 
 
 def test_run_terminates_and_synthesizes():
@@ -154,3 +154,34 @@ def test_analyze_path_terminates_on_real_repo():
     assert report["evidence_count"] >= 1
     assert isinstance(report["levels_covered"], list)
     assert report["budget_remaining"]["tokens"] >= 0
+
+
+def test_call_graph_detects_known_call():
+    from pathlib import Path
+
+    py = [Path("argos_model/algorithm.py")]
+    cg = build_call_graph(Path("."), py)
+    caller = "argos_model/algorithm.py::analyze_system"
+    callee = "argos_model/algorithm.py::execute_action"
+    assert caller in cg.nodes
+    assert callee in cg.nodes
+    assert (caller, callee) in cg.edges
+    impact = cg.impact()
+    assert impact[caller] > 0.0
+
+
+def test_extract_tags_impact_and_centrality():
+    system = extract_system(".", goal={"name": "refactor", "aspects": ["algorithm"]})
+    assert any(a.get("impact", 0) > 0 for a in system["artifacts"])
+    assert any(a.get("centrality", 0) > 0 for a in system["artifacts"])
+    assert system["call_graph"]["nodes"] > 0
+    assert system["call_graph"]["edges"] > 0
+    assert any(a["id"] == "L3:callgraph" for a in system["artifacts"])
+
+
+def test_relevance_blend_deterministic():
+    s1 = extract_system(".", goal={"name": "refactor", "aspects": ["algorithm"]})
+    s2 = extract_system(".", goal={"name": "refactor", "aspects": ["algorithm"]})
+    m1 = {a["id"]: a["relevance"] for a in s1["artifacts"]}
+    m2 = {a["id"]: a["relevance"] for a in s2["artifacts"]}
+    assert m1 == m2

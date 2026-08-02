@@ -8,3 +8,6 @@ __pycache__/
 
 # AN-KLA Memory (estado local)
 .an-kla/
+
+# macOS
+.DS_Store

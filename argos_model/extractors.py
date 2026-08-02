@@ -15,6 +15,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Iterable
 
+from .callgraph import CallGraph, build_call_graph, module_metrics
+
 DEFAULT_IGNORES = {
     ".git",
     ".venv",
@@ -69,6 +71,7 @@ L4_SUFFIXES = (".py", ".js", ".mjs", ".ts", ".tsx", ".jsx", ".go", ".rs", ".java
 L2_SUFFIXES = (".toml", ".cfg", ".ini", ".yml", ".yaml", ".lock")
 
 _READ_LIMIT = 8192
+MAX_CODE_ARTIFACTS = 400
 
 
 def _walk(root: Path, ignores: set[str]) -> list[Path]:
@@ -109,6 +112,27 @@ def _relevance(rel_path: str, goal: dict[str, Any]) -> float:
     return min(1.0, score)
 
 
+def _blend_relevance(
+    rel_path: str,
+    goal: dict[str, Any],
+    metrics: dict[str, dict[str, float]] | None,
+) -> tuple[float, float, float]:
+    """Relevance blending: lexical (goal-conditioned) + tool-measured L3 terms.
+
+    Per readme.md §6.1, ``Impact`` and ``Centrality`` are tool-measured and only
+    computable when the L3 extractor runs. Weights: lexical 0.6, impact 0.25,
+    centrality 0.15. Returns (relevance, impact, centrality).
+    """
+    lexical = _relevance(rel_path, goal)
+    impact = 0.0
+    centrality = 0.0
+    if metrics and rel_path in metrics:
+        impact = float(metrics[rel_path].get("impact", 0.0))
+        centrality = float(metrics[rel_path].get("centrality", 0.0))
+    relevance = min(1.0, 0.6 * lexical + 0.25 * impact + 0.15 * centrality)
+    return relevance, impact, centrality
+
+
 def _non_functional(rel_path: str) -> list[str]:
     name = rel_path.lower()
     nf: list[str] = []
@@ -128,6 +152,9 @@ def extract_system(root: Path | str, goal: dict[str, Any] | None = None) -> dict
         raise NotADirectoryError(root)
     ignores = set(DEFAULT_IGNORES)
     files = _walk(root, ignores)
+    py_files = [p for p in files if p.suffix == ".py"]
+    cg = build_call_graph(root, py_files)
+    metrics = module_metrics(cg)
     artifacts: list[dict[str, Any]] = [
         {
             "id": "L1:topology",
@@ -138,6 +165,8 @@ def extract_system(root: Path | str, goal: dict[str, Any] | None = None) -> dict
             "kind": "topology",
         }
     ]
+    artifacts.append(_callgraph_artifact(cg))
+    code_seen = 0
     for path in files:
         rel = _rel(root, path)
         base = path.name.lower()
@@ -165,22 +194,60 @@ def extract_system(root: Path | str, goal: dict[str, Any] | None = None) -> dict
                 }
             )
         elif path.suffix in L4_SUFFIXES or path.suffix == ".md":
+            if code_seen >= MAX_CODE_ARTIFACTS:
+                continue
+            code_seen += 1
             is_test = "test" in base or rel.lower().startswith(("tests/", "test/", "spec/"))
             kind = "test" if is_test else ("doc" if path.suffix == ".md" else "code")
             level = 5 if is_test else 4
+            relevance, impact, centrality = _blend_relevance(rel, goal, metrics)
             artifact: dict[str, Any] = {
                 "id": rel,
                 "content": content,
                 "location": rel,
                 "level": level,
-                "relevance": _relevance(rel, goal),
+                "relevance": relevance,
                 "kind": kind,
+                "impact": impact,
+                "centrality": centrality,
             }
             nf = _non_functional(rel)
             if nf:
                 artifact["nf"] = nf
             artifacts.append(artifact)
-    return {"name": root.name, "artifacts": artifacts}
+    return {"name": root.name, "artifacts": artifacts, "call_graph": _callgraph_summary(cg)}
+
+
+def _callgraph_artifact(cg: CallGraph) -> dict[str, Any]:
+    cent = cg.centrality()
+    imp = cg.impact()
+    ranked = sorted(cg.nodes.values(), key=lambda n: imp[n.id], reverse=True)[:20]
+    lines = [f"impact centrality node ({len(cg.nodes)} nodes, {len(cg.edges)} edges)"]
+    for node in ranked:
+        lines.append(f"{imp[node.id]:.2f}    {cent[node.id]:.2f}    {node.id}")
+    return {
+        "id": "L3:callgraph",
+        "content": "\n".join(lines),
+        "location": "(callgraph)",
+        "level": 3,
+        "relevance": 0.8,
+        "kind": "callgraph",
+    }
+
+
+def _callgraph_summary(cg: CallGraph) -> dict[str, Any]:
+    return {
+        "nodes": len(cg.nodes),
+        "edges": len(cg.edges),
+        "top_impact": [
+            {"id": n.id, "impact": round(_safe_impact(cg, n.id), 3)}
+            for n in sorted(cg.nodes.values(), key=lambda m: _safe_impact(cg, m.id), reverse=True)[:5]
+        ],
+    }
+
+
+def _safe_impact(cg: CallGraph, node_id: str) -> float:
+    return cg.impact().get(node_id, 0.0)
 
 
 def analyze_path(
