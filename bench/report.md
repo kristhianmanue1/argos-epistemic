@@ -48,9 +48,14 @@ python bench/run_benchmark.py --check    # CI: falla si el reporte está stale
   → la calibración (corroboration + min_sources) funciona cuando el linker discrimina.
 - **Ablación embedding**: argos(embed) cae a recall **0.75** porque el
   surrogate de char-n-gramas es NO discriminativo (~0.5 para todo, liga
-  `util.py` a 'auth'). **La palanca real es la fidelidad de S_semantic**, no
-  más knobs de calibración: un embedding denso real (sentence-transformers/API)
-  es el siguiente paso para que la calibración se traduzca en recall sobre
-  contenido menos obvio.
+  `util.py` a 'auth').
+- **S_semantic denso real (medición auxiliar con `--dense` + extra `[semantic]`,
+  fuera de CI)**: `all-MiniLM-L6-v2` eleva el recall medio a **0.83** sobre las
+  0.75 del surrogate (auth_project 0.50→0.67; math_lib 1.00→1.00): un S_semantic
+  denso discrimina más. **Pero no supera al léxico (1.00)** en estos fixtures,
+  porque el gold es token-obvio (contiene 'auth'/'token'/'login') y el overlap
+  léxico ya es óptimo. El bottleneck migró del surrogate a los fixtures: demostrar
+  el beneficio denso requiere matches semánticos **sin** overlap léxico
+  (sinónimos, conceptos) — esta fila no la regenera `--check` (CI sin `[semantic]`).
 - `full_read` tiene recall 1.0 pero precision baja (lee basura); `lexical_topk`
   iguala a argos pero necesita `k` hardcodeado, argos lo decide adaptativamente.
