@@ -45,7 +45,8 @@ def test_should_stop_when_thresholds_met():
         system={
             "name": "rico",
             "artifacts": [
-                {"id": f"a{i}", "content": str(i), "level": i, "relevance": 1.0, "kind": "artifact"}
+                {"id": f"a{i}", "content": str(i), "level": i, "relevance": 1.0, "kind": "artifact",
+                 "supports": [{"aspect": "x"}]}
                 for i in range(5)
             ],
         },
@@ -282,7 +283,8 @@ def test_historical_verification_confidence():
 
     report = analyze_path(
         ".",
-        goal={"name": "historia", "aspects": ["algorithm"], "theta_coverage": 2.0, "rho_risk": 0.0},
+        goal={"name": "historia", "aspects": ["algorithm"], "theta_coverage": 2.0, "rho_risk": 0.0,
+              "aspect_linker": lambda c, a: 1.0},
         budget=Budget(tokens_remaining=500000, tool_remaining=5000),
         run_history=True,
     )
@@ -317,6 +319,57 @@ def test_embedding_semantic_better_than_lexical_on_morphology():
     art = "authentication module for the api"
     goal = "auth seguridad"
     assert embedding_semantic(art, goal) > lexical_semantic(art, goal)
+
+
+def test_h1_irrelevant_evidence_does_not_raise_coverage():
+    system = {
+        "name": "s",
+        "artifacts": [
+            {"id": "irrel", "content": "completely unrelated content zzz", "level": 0, "relevance": 1.0, "kind": "doc"},
+        ],
+    }
+    goal = {"name": "g", "aspects": ["target"], "theta_coverage": 2.0, "rho_risk": 0.0}
+    report = analyze_system(system, goal, Budget(tokens_remaining=10000, tool_remaining=10))
+    assert report["evidence_count"] == 1
+    assert report["proposition_count"] == 0
+    assert report["coverage"] == 0.0
+    assert report["aspect_scores"]["target"] == 0.0
+    assert report["complete"] is False
+
+
+def test_h1_coverage_is_per_aspect_and_weighted():
+    system = {
+        "name": "s",
+        "artifacts": [
+            {"id": "a1", "content": "x", "level": 0, "relevance": 1.0, "kind": "doc", "supports": [{"aspect": "alpha"}]},
+            {"id": "a2", "content": "y", "level": 0, "relevance": 1.0, "kind": "doc", "supports": [{"aspect": "beta"}]},
+        ],
+    }
+    goal = {
+        "name": "g",
+        "aspects": [{"name": "alpha", "weight": 0.75}, {"name": "beta", "weight": 0.25}],
+        "theta_coverage": 2.0,
+        "rho_risk": 0.0,
+    }
+    report = analyze_system(system, goal, Budget(tokens_remaining=10000, tool_remaining=10))
+    assert report["aspect_scores"]["alpha"] > 0
+    assert report["aspect_scores"]["beta"] > 0
+    assert abs(report["coverage"] - 0.9) < 0.05  # both supported at 0.9 confidence
+
+
+def test_h5_conclusions_carry_section_23_fields():
+    system = {
+        "name": "s",
+        "artifacts": [
+            {"id": "d", "content": "auth doc", "level": 0, "relevance": 1.0, "kind": "doc",
+             "supports": [{"aspect": "auth"}]},
+        ],
+    }
+    report = analyze_system(system, {"name": "g", "aspects": ["auth"], "theta_coverage": 2.0, "rho_risk": 0.0},
+                            Budget(tokens_remaining=10000, tool_remaining=10))
+    concl = report["conclusions"][0]
+    for field in ("claim", "aspect", "confidence", "status", "evidence", "method", "scope", "timestamp"):
+        assert field in concl
 
 
 def test_h2_negative_run_is_not_supported():
@@ -488,7 +541,8 @@ def test_analyze_path_with_dynamic_includes_run(tmp_path):
     (tmp_path / "test_pkg.py").write_text("from pkg import add\n\ndef test_add():\n    assert add(1, 2) == 3\n", encoding="utf-8")
     report = analyze_path(
         tmp_path,
-        goal={"name": "refactor", "aspects": ["pkg"], "theta_coverage": 2.0, "rho_risk": 0.0},
+        goal={"name": "refactor", "aspects": ["pkg"], "theta_coverage": 2.0, "rho_risk": 0.0,
+              "aspect_linker": lambda c, a: 1.0},
         budget=Budget(tokens_remaining=500000, tool_remaining=5000),
         run_dynamic=True,
         dynamic_timeout=60,

@@ -273,29 +273,182 @@ def select_non_functional_extractors(goal: dict[str, Any]) -> list[str]:
     return list(goal.get("non_functional", []))
 
 
+@dataclass
+class Proposition:
+    """An aspect-linked claim derived from verified evidence.
+
+    This is the keystone layer (readme.md §7, §12, §23): evidence becomes a
+    proposition about a *specific* aspect of the goal, with polarity and
+    confidence. Coverage is computed per aspect over propositions, so evidence
+    unrelated to an aspect contributes exactly zero.
+    """
+
+    aspect: str
+    polarity: float
+    claim: str
+    evidence_id: str
+    confidence: float
+    method: str
+    scope: str
+    timestamp: int = 0
+    dependencies: tuple[str, ...] = ()
+    strength: float = 1.0
+
+
+class PropositionStore:
+    def __init__(self) -> None:
+        self._items: list[Proposition] = []
+
+    def __iter__(self) -> Iterable[Proposition]:
+        return iter(self._items)
+
+    def __len__(self) -> int:
+        return len(self._items)
+
+    def add(self, proposition: Proposition) -> None:
+        self._items.append(proposition)
+
+    def for_aspect(self, aspect: str) -> list[Proposition]:
+        return [p for p in self._items if p.aspect == aspect]
+
+
+def _polarity_for(status: str) -> float:
+    if status == "contradicted":
+        return -1.0
+    if status == "weak":
+        return 0.5
+    if status == "unknown":
+        return 0.0
+    return 1.0
+
+
+def _epistemic_status(polarity: float, confidence: float) -> str:
+    if polarity < 0:
+        return "contradicted"
+    if polarity == 0:
+        return "unknown"
+    return "supported" if confidence >= 0.7 else "weak"
+
+
+def _default_linker(text: str, aspect: str) -> float:
+    return _jaccard(_tokens(text), _tokens(aspect))
+
+
+def _resolve_artifact(system: dict[str, Any], evidence_id: str) -> dict[str, Any] | None:
+    base = evidence_id.split("#nf:", 1)[0] if "#nf:" in evidence_id else evidence_id
+    return next((a for a in system.get("artifacts", []) if a.get("id") == base), None)
+
+
+def link_aspects(
+    artifact: dict[str, Any] | None,
+    aspect_names: list[str],
+    goal: dict[str, Any],
+    linker,
+) -> dict[str, float]:
+    """Return {aspect: strength} for the aspects this artifact speaks to.
+
+    Honors an explicit ``artifact["supports"] = [{"aspect": ..., "strength": ...}]``
+    declaration; otherwise infers linkage via ``linker(content, aspect)`` above a
+    threshold (so unrelated evidence contributes zero).
+    """
+    if artifact is None:
+        return {}
+    declared = artifact.get("supports")
+    if isinstance(declared, list) and declared:
+        out: dict[str, float] = {}
+        for entry in declared:
+            name = entry.get("aspect") if isinstance(entry, dict) else None
+            if name:
+                out[str(name)] = float(entry.get("strength", 1.0)) if isinstance(entry, dict) else 1.0
+        return out
+    threshold = goal.get("link_threshold", 0.05)
+    content = str(artifact.get("content", "")) + " " + str(artifact.get("id", ""))
+    return {
+        aspect: strength
+        for aspect in aspect_names
+        if (strength := linker(content, aspect)) >= threshold
+    }
+
+
+def derive_propositions(
+    evidence: Evidence,
+    verification: Verification,
+    artifact: dict[str, Any] | None,
+    aspect_names: list[str],
+    goal_name: str,
+    goal: dict[str, Any],
+    linker,
+) -> list[Proposition]:
+    polarity = _polarity_for(verification.status)
+    links = link_aspects(artifact, aspect_names, goal, linker)
+    props: list[Proposition] = []
+    for aspect, strength in links.items():
+        sign = polarity
+        if sign == 0.0 and verification.status == "weak":
+            sign = 0.5
+        props.append(
+            Proposition(
+                aspect=aspect,
+                polarity=sign,
+                claim=f"{evidence.kind}@{evidence.location} -> {aspect} ({verification.method})",
+                evidence_id=evidence.id,
+                confidence=verification.confidence,
+                method=verification.method,
+                scope=evidence.location,
+                timestamp=evidence.timestamp,
+                dependencies=(evidence.id,),
+                strength=strength,
+            )
+        )
+    return props
+
+
 def compute_coverage(
-    evidence: EvidenceStore,
-    beliefs: BeliefStore,
+    propositions: PropositionStore,
     aspects: list[dict[str, Any]],
 ) -> float:
+    """Per-aspect coverage (readme.md §12): Cov = Σ w_i · aspect_score(t_i).
+
+    aspect_score(t_i) = clamp01(Σ polarity·confidence) over propositions on t_i.
+    Aspects with no supporting proposition score 0 (evidence irrelevant to the
+    goal contributes nothing).
+    """
     if not aspects:
         return 0.0
-    supported_confidence = sum(b.confidence for b in beliefs if b.status == "supported")
-    weak_confidence = sum(b.confidence for b in beliefs if b.status == "weak") * 0.5
-    return min(1.0, (supported_confidence + weak_confidence) / len(aspects))
+    by_aspect: dict[str, list[Proposition]] = {}
+    for prop in propositions:
+        by_aspect.setdefault(prop.aspect, []).append(prop)
+    total = 0.0
+    for aspect in aspects:
+        net = sum(p.polarity * p.confidence for p in by_aspect.get(aspect["name"], []))
+        total += aspect["weight"] * max(0.0, min(1.0, net))
+    return max(0.0, min(1.0, total))
 
 
 def compute_residual_risk(
-    evidence: EvidenceStore,
-    beliefs: BeliefStore,
+    propositions: PropositionStore,
+    aspects: list[dict[str, Any]],
     goal: dict[str, Any],
 ) -> float:
-    if not beliefs:
+    """Risk from missing aspects and contradictions, not average confidence.
+
+    Driven by the share of required aspects with no positive support and the
+    share of contradicting propositions. No propositions at all => max risk.
+    """
+    if not propositions:
         return 1.0
-    avg_confidence = sum(b.confidence for b in beliefs) / len(beliefs)
-    unknown_share = sum(1 for b in beliefs if b.status == "unknown") / len(beliefs)
-    contradicted_share = sum(1 for b in beliefs if b.status == "contradicted") / len(beliefs)
-    return max(0.0, min(1.0, (1.0 - avg_confidence) * 0.7 + unknown_share * 0.3 + contradicted_share * 0.3))
+    if not aspects:
+        return 0.0
+    names = [a["name"] for a in aspects]
+    by_aspect: dict[str, list[Proposition]] = {}
+    for prop in propositions:
+        by_aspect.setdefault(prop.aspect, []).append(prop)
+    missing = sum(
+        1 for n in names if not any(p.polarity > 0 for p in by_aspect.get(n, []))
+    ) / len(names)
+    contra = sum(1 for p in propositions if p.polarity < 0)
+    contra_share = contra / len(propositions)
+    return max(0.0, min(1.0, 0.7 * missing + 0.3 * contra_share))
 
 
 def _confidence_for(method: str) -> float:
@@ -565,16 +718,28 @@ def synthesize_report(
     goal: dict[str, Any],
     evidence: EvidenceStore,
     beliefs: BeliefStore,
+    propositions: PropositionStore,
     conflicts: ConflictStore,
+    aspects: list[dict[str, Any]],
     coverage: float,
     residual_risk: float,
     budget: Budget,
 ) -> dict[str, Any]:
+    by_aspect: dict[str, list[Proposition]] = {}
+    for prop in propositions:
+        by_aspect.setdefault(prop.aspect, []).append(prop)
+    aspect_scores = {
+        a["name"]: round(
+            max(0.0, min(1.0, sum(p.polarity * p.confidence for p in by_aspect.get(a["name"], [])))), 4
+        )
+        for a in aspects
+    }
     return {
         "system": system.get("name"),
         "goal": goal.get("name"),
         "evidence_count": len(evidence),
         "belief_count": len(beliefs),
+        "proposition_count": len(propositions),
         "conflict_count": len(conflicts),
         "compressed_count": sum(1 for e in evidence if e.compressed),
         "evidence_kinds": sorted({e.kind for e in evidence}),
@@ -591,32 +756,48 @@ def synthesize_report(
         ],
         "coverage": round(coverage, 4),
         "residual_risk": round(residual_risk, 4),
+        "aspect_scores": aspect_scores,
         "budget_remaining": {
             "tokens": budget.tokens_remaining,
             "tool": budget.tool_remaining,
         },
         "levels_covered": sorted(evidence.levels()),
         "conclusions": [
-            {"claim": b.claim, "confidence": b.confidence, "status": b.status}
-            for b in beliefs
+            {
+                "claim": p.claim,
+                "aspect": p.aspect,
+                "confidence": p.confidence,
+                "status": _epistemic_status(p.polarity, p.confidence),
+                "polarity": p.polarity,
+                "evidence": p.evidence_id,
+                "dependencies": list(p.dependencies),
+                "method": p.method,
+                "scope": p.scope,
+                "timestamp": p.timestamp,
+            }
+            for p in propositions
         ],
         "complete": coverage >= goal.get("theta_coverage", budget.theta_coverage)
         and residual_risk <= goal.get("rho_risk", budget.rho_risk)
-        and not any(b.status == "contradicted" for b in beliefs),
+        and not any(p.polarity < 0 for p in propositions)
+        and not conflicts.critical(),
     }
 
 
 def analyze_system(system: dict[str, Any], goal: dict[str, Any], budget: Budget, policy: dict[str, Any] | None = None) -> dict[str, Any]:
     evidence = EvidenceStore()
     beliefs = BeliefStore()
+    propositions = PropositionStore()
     conflicts = ConflictStore()
     required_aspects = derive_goal_aspects(goal)
+    aspect_names = [a["name"] for a in required_aspects]
     enabled_nf = select_non_functional_extractors(goal)
+    linker = goal.get("aspect_linker") or _default_linker
     coverage = 0.0
     residual_risk = 1.0
     while budget.has_capacity():
-        coverage = compute_coverage(evidence, beliefs, required_aspects)
-        residual_risk = compute_residual_risk(evidence, beliefs, goal)
+        coverage = compute_coverage(propositions, required_aspects)
+        residual_risk = compute_residual_risk(propositions, required_aspects, goal)
         if should_stop(coverage, residual_risk, conflicts, goal, budget):
             break
         actions = generate_candidate_actions(system, goal, evidence, beliefs, conflicts, enabled_nf)
@@ -637,6 +818,11 @@ def analyze_system(system: dict[str, Any], goal: dict[str, Any], budget: Budget,
         evidence.add(new_evidence)
         verification = verify_evidence(new_evidence, action.verification_method, system)
         beliefs.update(new_evidence, verification, goal["name"])
+        artifact = _resolve_artifact(system, new_evidence.id)
+        for prop in derive_propositions(
+            new_evidence, verification, artifact, aspect_names, goal["name"], goal, linker
+        ):
+            propositions.add(prop)
         conflicts.merge(
             detect_conflicts(
                 evidence,
@@ -651,7 +837,11 @@ def analyze_system(system: dict[str, Any], goal: dict[str, Any], budget: Budget,
             protected_ids.update(conflict.evidence_for)
             protected_ids.update(conflict.evidence_against)
         evidence.compress(budget, preserve_provenance=True, preserve_invariants=protected_ids)
-    return synthesize_report(system, goal, evidence, beliefs, conflicts, coverage, residual_risk, budget)
+    coverage = compute_coverage(propositions, required_aspects)
+    residual_risk = compute_residual_risk(propositions, required_aspects, goal)
+    return synthesize_report(
+        system, goal, evidence, beliefs, propositions, conflicts, required_aspects, coverage, residual_risk, budget
+    )
 
 
 def run(system: dict[str, Any] | None = None, goal: dict[str, Any] | None = None, budget: Budget | None = None) -> dict[str, Any]:
@@ -659,9 +849,12 @@ def run(system: dict[str, Any] | None = None, goal: dict[str, Any] | None = None
         system = {
             "name": "argos",
             "artifacts": [
-                {"id": "readme.md", "content": "Modelo Epistemico Unificado", "level": 0, "relevance": 1.0, "kind": "doc"},
-                {"id": "pyproject.toml", "content": "build manifest", "level": 2, "relevance": 0.6, "kind": "config"},
-                {"id": "argos_epistemic/algorithm.py", "content": "reference impl", "level": 4, "relevance": 0.8, "kind": "code"},
+                {"id": "readme.md", "content": "Modelo Epistemico Unificado: proposito y estructura", "level": 0, "relevance": 1.0, "kind": "doc",
+                 "supports": [{"aspect": "proposito"}, {"aspect": "estructura"}]},
+                {"id": "pyproject.toml", "content": "build manifest del entorno", "level": 2, "relevance": 0.6, "kind": "config",
+                 "supports": [{"aspect": "entorno"}]},
+                {"id": "argos_epistemic/algorithm.py", "content": "reference impl de contratos y comportamiento", "level": 4, "relevance": 0.8, "kind": "code",
+                 "supports": [{"aspect": "contratos"}, {"aspect": "comportamiento"}]},
             ],
         }
     if goal is None:
