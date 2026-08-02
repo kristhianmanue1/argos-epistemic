@@ -78,6 +78,7 @@ def _run(root, goal):
 def _argos_md() -> str:
     system, report = _run(ROOT, ARGOS_GOAL)
     cg = system.get("call_graph", {})
+    bh = system.get("behavior", {})
     top = ", ".join(f"{n['id'].split('::')[-1]} ({n['impact']})" for n in cg.get("top_impact", [])[:4])
     raw = json.dumps({k: report[k] for k in ("evidence_count", "proposition_count", "coverage", "residual_risk", "complete")})
     lines = [
@@ -99,6 +100,10 @@ def _argos_md() -> str:
         f"- Grafo de llamadas L3 (Python AST, subgrafo de producción): "
         f"{cg.get('nodes')} nodos / {cg.get('edges')} aristas "
         f"({cg.get('production_nodes')} producción). Top impacto: {top}.",
+        f"- Comportamiento L4 (AST best-effort, Σ_4): {bh.get('raising', 0)} fn levantan, "
+        f"{bh.get('asserting', 0)} con asserts, {bh.get('mutating', 0)} mutan self, "
+        f"{bh.get('validating', 0)} validan ({bh.get('production_functions', 0)}/"
+        f"{bh.get('functions', 0)} producción).",
         "",
         "## Reporte",
         "",
@@ -155,6 +160,7 @@ def _markupsafe_md() -> str | None:
         ).stdout.strip()
         system, report = _run(dest, MARKUPSAFE_GOAL)
         cg = system.get("call_graph", {})
+        bh = system.get("behavior", {})
         top = ", ".join(f"{n['id'].split('::')[-1]} ({n['impact']})" for n in cg.get("top_impact", [])[:4])
     finally:
         shutil.rmtree(dest, ignore_errors=True)
@@ -174,6 +180,9 @@ def _markupsafe_md() -> str | None:
         f"- Grafo L3 (producción): {cg.get('nodes')} nodos / {cg.get('edges')} aristas "
         f"({cg.get('production_nodes')} producción). Los tests se excluyen del "
         f"cálculo de Impact (sesgo corregido). Top impacto: {top}.",
+        f"- Comportamiento L4 (Σ_4): {bh.get('raising', 0)} levantan, "
+        f"{bh.get('asserting', 0)} asserts, {bh.get('mutating', 0)} mutan, "
+        f"{bh.get('validating', 0)} validan.",
         "",
         "## Reporte",
         "",

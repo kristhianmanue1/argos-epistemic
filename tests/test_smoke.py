@@ -795,3 +795,59 @@ def test_s14_freshness_symmetric_across_levels():
     # ningún artefacto sin campo freshness
     missing = [a["id"] for a in system["artifacts"] if "freshness" not in a]
     assert missing == []
+
+
+def test_l4_extracts_raises_asserts_mutations_and_skips_nested(tmp_path):
+    from argos_epistemic import extract_behavior
+
+    (tmp_path / "mod.py").write_text(
+        "class C:\n"
+        "    def mutates(self, x):\n        self.x = x\n"
+        "    def validate(self, n):\n"
+        "        if n < 0:\n            raise ValueError('neg')\n"
+        "        return n\n"
+        "    def invariant(self, a):\n"
+        "        assert a > 0\n        return a\n"
+        "    def raises_named(self):\n        raise KeyError('k')\n"
+        "    def raises_call(self):\n        raise RuntimeError('r')\n"
+        "    def nested(self):\n"
+        "        def inner():\n            raise OSError\n"
+        "        return inner\n"
+        "    def reraise(self):\n        raise\n",
+        encoding="utf-8",
+    )
+    b = {x.name: x for x in extract_behavior(tmp_path, [tmp_path / "mod.py"])}
+    assert b["mutates"].mutates_self is True
+    assert b["validate"].validates is True and b["validate"].raises == {"ValueError"}
+    assert b["invariant"].asserts >= 1
+    assert b["raises_named"].raises == {"KeyError"}
+    assert b["raises_call"].raises == {"RuntimeError"}
+    # el raise anidado pertenece a `inner`, no a `nested` (no doble conteo)
+    assert b["nested"].raises == set()
+    assert "inner" in b and b["inner"].raises == {"OSError"}
+    # bare re-raise sin nombre de excepción
+    assert b["reraise"].raises == set()
+
+
+def test_l4_behavior_artifact_and_summary_in_extract_system():
+    system = extract_system(".", goal={"name": "refactor", "aspects": ["algorithm"]})
+    art = next(a for a in system["artifacts"] if a["id"] == "L4:behavior")
+    assert art["level"] == 4 and art["kind"] == "behavior"
+    assert art["freshness"] == 1.0 and art["timestamp"] > 0
+    s = system["behavior"]
+    for fld in ("functions", "production_functions", "raising", "asserting", "mutating", "validating"):
+        assert fld in s
+    assert s["functions"] >= s["production_functions"] >= 0
+
+
+def test_l4_known_signal_from_this_repo():
+    from pathlib import Path
+
+    from argos_epistemic import extract_behavior
+
+    b = {
+        x.id: x
+        for x in extract_behavior(Path("."), [Path("argos_epistemic/extractors.py")])
+    }
+    es = b["argos_epistemic/extractors.py::extract_system"]
+    assert "NotADirectoryError" in es.raises

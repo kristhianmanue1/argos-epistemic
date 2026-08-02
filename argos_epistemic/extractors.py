@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from .behavior import behavior_artifact, behavior_summary, extract_behavior
 from .callgraph import CallGraph, build_multi_call_graph, module_metrics
 
 DEFAULT_IGNORES = {
@@ -296,6 +297,7 @@ def extract_system(
     files = _walk(root, ignores)
     cg = build_multi_call_graph(root, files)
     metrics = module_metrics(cg)
+    behaviors = extract_behavior(root, files)
     sim = semantic_fn or lexical_semantic
     now = time.time()
     artifacts: list[dict[str, Any]] = [
@@ -311,6 +313,7 @@ def extract_system(
         }
     ]
     artifacts.append(_callgraph_artifact(cg, now))
+    artifacts.append(behavior_artifact(behaviors, now))
     code_seen = 0
     for path in files:
         rel = _rel(root, path)
@@ -332,7 +335,7 @@ def extract_system(
             if nf:
                 artifact["nf"] = nf
             artifacts.append(artifact)
-    return {"name": root.name, "artifacts": artifacts, "call_graph": _callgraph_summary(cg)}
+    return {"name": root.name, "artifacts": artifacts, "call_graph": _callgraph_summary(cg), "behavior": behavior_summary(behaviors)}
 
 
 def _callgraph_artifact(cg: CallGraph, now: float = 0.0) -> dict[str, Any]:

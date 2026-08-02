@@ -2,12 +2,13 @@
 
 > Generado por `examples/regenerate_case_studies.py` desde el pipeline actual (no escrito a mano). El sistema analizado es el propio repositorio; es un *autoestudio*, lo que limita la independencia (ver caso markupsafe).
 
-Tests en verde: **51**. Objetivo `G=refactorizacion`, aspectos `['algorithm', 'config', 'test', 'doc']`, NF `['sec']`, θ=0.8, ρ=0.25.
+Tests en verde: **54**. Objetivo `G=refactorizacion`, aspectos `['algorithm', 'config', 'test', 'doc']`, NF `['sec']`, θ=0.8, ρ=0.25.
 
 ## Extracción (discovery barato + índice L3)
 
-- Artefactos descubiertos: **29** (por nivel `{0: 3, 1: 1, 2: 4, 3: 1, 4: 19, 5: 1}`, por tipo `{'topology': 1, 'callgraph': 1, 'config': 4, 'doc': 7, 'code': 15, 'test': 1}`).
-- Grafo de llamadas L3 (Python AST, subgrafo de producción): 188 nodos / 272 aristas (134 producción). Top impacto: main (0.669), _argos_md (0.654), _markupsafe_md (0.647), analyze_path (0.639).
+- Artefactos descubiertos: **31** (por nivel `{0: 3, 1: 1, 2: 4, 3: 1, 4: 21, 5: 1}`, por tipo `{'topology': 1, 'callgraph': 1, 'behavior': 1, 'config': 4, 'doc': 7, 'code': 16, 'test': 1}`).
+- Grafo de llamadas L3 (Python AST, subgrafo de producción): 204 nodos / 283 aristas (147 producción). Top impacto: main (0.644), _argos_md (0.63), _markupsafe_md (0.623), analyze_path (0.616).
+- Comportamiento L4 (AST best-effort, Σ_4): 1 fn levantan, 54 con asserts, 9 mutan self, 0 validan (157/216 producción).
 
 ## Reporte
 

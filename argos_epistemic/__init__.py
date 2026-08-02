@@ -16,6 +16,7 @@ from .algorithm import (
     q_g_invariant,
     run,
 )
+from .behavior import FuncBehavior, behavior_summary, extract_behavior
 from .callgraph import CallGraph, build_call_graph, build_multi_call_graph, register_l3_extractor
 from .dynamic import detect_runner, dynamic_artifact, run_pytest, run_tests
 from .extractors import analyze_path, embedding_semantic, extract_system, lexical_semantic
@@ -42,9 +43,11 @@ __all__ = [
     "Cost",
     "Evidence",
     "EvidenceStore",
+    "FuncBehavior",
     "Verification",
     "analyze_path",
     "analyze_system",
+    "behavior_summary",
     "build_call_graph",
     "build_multi_call_graph",
     "capacity_for_budget",
@@ -53,6 +56,7 @@ __all__ = [
     "detect_runner",
     "dynamic_artifact",
     "embedding_semantic",
+    "extract_behavior",
     "extract_system",
     "git_log_summary",
     "history_artifact",
