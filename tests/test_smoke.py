@@ -327,6 +327,56 @@ def test_embedding_semantic_better_than_lexical_on_morphology():
     assert embedding_semantic(art, goal) > lexical_semantic(art, goal)
 
 
+def test_h4_loader_runs_only_when_selected():
+    from argos_epistemic import analyze_system
+
+    called = []
+
+    def loader():
+        called.append(True)
+        return {"content": "deferred evidence payload", "run": {"status": "supported"}}
+
+    system = {
+        "name": "s",
+        "artifacts": [
+            {"id": "cheap", "content": "x", "level": 0, "relevance": 1.0, "kind": "doc",
+             "supports": [{"aspect": "a"}]},
+            {"id": "dyn", "content": "", "location": "(dynamic)", "level": 5, "relevance": 0.85,
+             "kind": "test-run", "verification_method": "dynamic", "size": 100000,
+             "supports": [{"aspect": "a"}], "loader": loader},
+        ],
+    }
+    report = analyze_system(system, {"name": "g", "aspects": ["a"], "theta_coverage": 2.0, "rho_risk": 0.0},
+                            Budget(tokens_remaining=500, tool_remaining=2))
+    assert called == []  # 'dyn' too expensive (size 100000) -> never selected -> loader not run
+    assert report["evidence_count"] == 1
+
+
+def test_h4_loader_runs_when_affordable_and_cost_is_observed():
+    from argos_epistemic import analyze_system
+
+    called = []
+
+    def loader():
+        called.append(True)
+        return {"content": "deferred evidence payload of some length", "run": {"status": "supported"}}
+
+    system = {
+        "name": "s",
+        "artifacts": [
+            {"id": "dyn", "content": "", "location": "(dynamic)", "level": 5, "relevance": 0.85,
+             "kind": "test-run", "verification_method": "dynamic", "size": 100,
+             "supports": [{"aspect": "a"}], "loader": loader},
+        ],
+    }
+    report = analyze_system(system, {"name": "g", "aspects": ["a"], "theta_coverage": 2.0, "rho_risk": 0.0},
+                            Budget(tokens_remaining=100000, tool_remaining=10))
+    assert called == [True]
+    assert any(c["method"] == "dynamic" for c in report["conclusions"])
+    assert report["cost"]["observed_tokens"] > 0
+    assert report["cost"]["estimated_tokens"] >= report["cost"]["observed_tokens"] / 25  # size hint was small
+
+
 def test_h7_polarity_contradiction_on_same_aspect():
     system = {
         "name": "s",

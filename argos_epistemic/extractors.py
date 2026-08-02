@@ -345,22 +345,43 @@ def analyze_path(
     from .history import history_artifact
     from .logs import logs_artifact
 
+    root_path = Path(root)
     if budget is None:
         budget = Budget(tokens_remaining=200000, tool_remaining=2000)
     system = extract_system(root, goal, semantic_fn=semantic_fn)
-    if run_logs:
-        artifact = logs_artifact(root, goal)
-        if artifact is not None:
-            system["artifacts"].append(artifact)
-            system["logs"] = artifact.pop("run", None)
-    if run_history:
-        artifact = history_artifact(root, goal)
-        if artifact is not None:
-            system["artifacts"].append(artifact)
-            system["history"] = artifact.pop("run", None)
+    # L5 subprocess extractors are registered as DEFERRED actions (H4): a cheap
+    # precondition is probed at discovery, but the expensive subprocess only
+    # runs when the budgeted loop selects the action (loader). Cost is estimated
+    # from a size hint and observed from the real output.
+    from .dynamic import detect_runner
+    from .history import git_log_summary
+
+    def _deferred(aid, location, level, relevance, kind, method, loader):
+        return {
+            "id": aid, "content": "", "location": location, "level": level,
+            "relevance": relevance, "kind": kind, "verification_method": method,
+            "size": 200, "loader": loader,
+        }
+
+    def _unwrap(artifact):
+        if not artifact:
+            return {}
+        return {"content": artifact.get("content", ""), "run": artifact.get("run")}
+
+    if run_logs and any(root_path.rglob("*.log")):
+        system["artifacts"].append(
+            _deferred("L5:logs", "(logs)", 5, 0.6, "logs", "historical",
+                      lambda: _unwrap(logs_artifact(root_path, goal)))
+        )
+    if run_history and (root_path / ".git").exists():
+        system["artifacts"].append(
+            _deferred("L5:gitlog", "(history)", 5, 0.7, "history", "historical",
+                      lambda: _unwrap(history_artifact(root_path, goal)))
+        )
     if run_dynamic:
-        artifact = dynamic_artifact(root, timeout=dynamic_timeout)
-        if artifact is not None:
-            system["artifacts"].append(artifact)
-            system["dynamic"] = artifact.pop("run", None)
+        label = detect_runner(root_path)[0]
+        system["artifacts"].append(
+            _deferred(f"L5:{label}", "(dynamic)", 5, 0.85, "test-run", "dynamic",
+                      lambda: _unwrap(dynamic_artifact(root_path, timeout=dynamic_timeout)))
+        )
     return analyze_system(system, goal or {}, budget)

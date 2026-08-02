@@ -487,15 +487,43 @@ def prerequisites_satisfied(action: Action, evidence: EvidenceStore, beliefs: Be
     return all(evidence.has(prereq) or any(prereq == b.claim for b in beliefs) for prereq in action.prerequisites)
 
 
-def _size_cost(content: Any, tool: int = 1) -> Cost:
-    """Cost reflects extraction size (chars->tokens), not epistemic relevance.
+def _size_cost(artifact: Any, tool: int = 1) -> Cost:
+    """Estimated extraction cost from artifact size, not epistemic relevance.
 
-    Relevance drives expected value (``expected_delta_*``); cost must represent
-    size/latency so that ``Utility = value/cost`` does not invert and penalize
-    high-relevance artifacts (readme.md §15, §16).
+    Prefers a declared ``size`` (cheap stat at discovery) so that selection can
+    gate on cost BEFORE the expensive extraction runs (readme.md §15, §16, and
+    the §3 budget that must bound real work, not just post-hoc accounting).
     """
-    tokens = max(10, len(str(content)) // 4)
-    return Cost(tokens=tokens, tool=tool)
+    if isinstance(artifact, dict):
+        size = artifact.get("size")
+        if size is None:
+            size = len(str(artifact.get("content", "")))
+    else:
+        size = len(str(artifact))
+    return Cost(tokens=max(10, int(size) // 4), tool=tool)
+
+
+def _resolve_lazy(artifact: dict[str, Any]) -> None:
+    """Materialize content on demand (H4): the extractor runs only when selected.
+
+    Deferred extractors (dynamic/history/logs) expose a ``loader`` returning a
+    dict with ``content`` and optionally ``run``; file artifacts may carry a
+    loader to read their content lazily. Discovery pays only a stat; extraction
+    pays the real I/O/subprocess, accounted as observed cost.
+    """
+    if artifact.get("content"):
+        return
+    loader = artifact.get("loader")
+    if not callable(loader):
+        return
+    resolved = loader() or {}
+    if isinstance(resolved, dict):
+        if resolved.get("content") is not None:
+            artifact["content"] = resolved["content"]
+        if "run" in resolved:
+            artifact["run"] = resolved["run"]
+    else:
+        artifact["content"] = str(resolved)
 
 
 def generate_candidate_actions(
@@ -515,7 +543,7 @@ def generate_candidate_actions(
                 name=f"extract_L{artifact['level']}",
                 target_id=artifact["id"],
                 level=artifact["level"],
-                estimated_cost=_size_cost(artifact.get("content", "")),
+                estimated_cost=_size_cost(artifact),
                 verification_method=artifact.get("verification_method")
                 or ("deterministic" if artifact["level"] <= 2 else "symbolic"),
                 prerequisites=tuple(artifact.get("prerequisites", [])),
@@ -536,7 +564,7 @@ def generate_candidate_actions(
                     name=f"extract_nf:{nf}",
                     target_id=nf_id,
                     level=artifact["level"],
-                    estimated_cost=_size_cost(artifact.get("content", "")),
+                    estimated_cost=_size_cost(artifact),
                     verification_method="symbolic",
                     prerequisites=tuple(artifact.get("prerequisites", [])),
                     expected_delta_coverage=artifact.get("relevance", 0.1) * 0.15,
@@ -574,13 +602,14 @@ def execute_action(action: Action, system: dict[str, Any]) -> ActionResult:
     else:
         base_id = target_id
     artifact = next(a for a in system["artifacts"] if a["id"] == base_id)
+    _resolve_lazy(artifact)
     if nf is None:
         kind = artifact.get("kind", "artifact")
-        content = artifact["content"]
+        content = artifact.get("content", "")
         location = artifact.get("location", artifact["id"])
     else:
         kind = f"nf:{nf}"
-        content = artifact.get(f"nf_{nf}", f"{nf}:{artifact['content']}")
+        content = artifact.get(f"nf_{nf}", f"{nf}:{artifact.get('content','')}")
         location = f"{base_id}#{nf}"
     evidence = Evidence(
         id=target_id,
@@ -600,7 +629,12 @@ def execute_action(action: Action, system: dict[str, Any]) -> ActionResult:
         method=action.verification_method,
         timestamp=evidence.timestamp,
     )
-    return ActionResult(evidence=evidence, verification=verification, actual_cost=action.estimated_cost)
+    observed_tokens = max(10, len(str(content)) // 4)
+    return ActionResult(
+        evidence=evidence,
+        verification=verification,
+        actual_cost=Cost(tokens=observed_tokens, tool=1),
+    )
 
 
 def normalize_evidence(result: ActionResult) -> Evidence:
@@ -740,6 +774,7 @@ def synthesize_report(
     coverage: float,
     residual_risk: float,
     budget: Budget,
+    cost: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     by_aspect: dict[str, list[Proposition]] = {}
     for prop in propositions:
@@ -777,6 +812,7 @@ def synthesize_report(
             "tokens": budget.tokens_remaining,
             "tool": budget.tool_remaining,
         },
+        "cost": cost or {"estimated_tokens": 0, "observed_tokens": 0},
         "levels_covered": sorted(evidence.levels()),
         "conclusions": [
             {
@@ -811,6 +847,8 @@ def analyze_system(system: dict[str, Any], goal: dict[str, Any], budget: Budget,
     linker = goal.get("aspect_linker") or _default_linker
     coverage = 0.0
     residual_risk = 1.0
+    cost_estimated = 0
+    cost_observed = 0
     while budget.has_capacity():
         coverage = compute_coverage(propositions, required_aspects)
         residual_risk = compute_residual_risk(propositions, required_aspects, goal)
@@ -830,6 +868,8 @@ def analyze_system(system: dict[str, Any], goal: dict[str, Any], budget: Budget,
         )
         result = execute_action(action, system)
         budget.consume(result.actual_cost)
+        cost_estimated += action.estimated_cost.tokens
+        cost_observed += result.actual_cost.tokens
         new_evidence = normalize_evidence(result)
         evidence.add(new_evidence)
         verification = verify_evidence(new_evidence, action.verification_method, system)
@@ -854,7 +894,8 @@ def analyze_system(system: dict[str, Any], goal: dict[str, Any], budget: Budget,
     coverage = compute_coverage(propositions, required_aspects)
     residual_risk = compute_residual_risk(propositions, required_aspects, goal)
     return synthesize_report(
-        system, goal, evidence, beliefs, propositions, conflicts, required_aspects, coverage, residual_risk, budget
+        system, goal, evidence, beliefs, propositions, conflicts, required_aspects,
+        coverage, residual_risk, budget, {"estimated_tokens": cost_estimated, "observed_tokens": cost_observed},
     )
 
 
