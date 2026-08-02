@@ -64,6 +64,23 @@ class Evidence:
     location: str
     level: int
     timestamp: int = 0
+    compressed: bool = False
+    digest: str | None = None
+
+    def compress_in_place(self) -> None:
+        if self.compressed:
+            return
+        original = str(self.content)
+        self.digest = f"phi:{abs(hash(original)) & 0xFFFFFFFF:08x}"
+        self.content = f"<compressed:{self.digest}>"
+        self.compressed = True
+
+
+EVIDENCE_CAPACITY = 8
+
+
+def _position_of(content: Any) -> str:
+    return str(content).strip().lower()
 
 
 @dataclass
@@ -96,7 +113,17 @@ class EvidenceStore:
         return {item.level for item in self._items}
 
     def compress(self, budget: Budget, preserve_provenance: bool, preserve_invariants) -> None:
-        pass
+        capacity = EVIDENCE_CAPACITY
+        protected = set(preserve_invariants or [])
+        uncompressed = [x for x in self._items if not x.compressed]
+        if len(uncompressed) <= capacity:
+            return
+        for item in uncompressed:
+            if len([x for x in self._items if not x.compressed]) <= capacity:
+                break
+            if item.id in protected:
+                continue
+            item.compress_in_place()
 
 
 @dataclass
@@ -106,6 +133,8 @@ class Belief:
     status: str
     provenance: str
     dependencies: tuple[str, ...] = ()
+    scope: str = ""
+    position: str = ""
 
 
 class BeliefStore:
@@ -127,8 +156,16 @@ class BeliefStore:
                 status=verification.status,
                 provenance=verification.provenance,
                 dependencies=(new_evidence.id,),
+                scope=new_evidence.location,
+                position=_position_of(new_evidence.content),
             )
         )
+
+    def mark_conflicted(self, scopes) -> None:
+        scope_set = set(scopes)
+        for belief in self._items:
+            if belief.scope in scope_set and belief.status not in ("conflicted", "contradicted"):
+                belief.status = "conflicted"
 
 
 @dataclass
@@ -157,6 +194,9 @@ class ConflictStore:
 
     def critical(self) -> list[Conflict]:
         return [c for c in self._items if c.severity >= 0.8 and c.resolution_status != "resolved"]
+
+    def open_scopes(self) -> set[str]:
+        return {c.scope for c in self._items if c.resolution_status == "open"}
 
 
 @dataclass
@@ -263,6 +303,26 @@ def generate_candidate_actions(
                 expected_delta_risk_reduction=0.15,
             )
         )
+    for nf in enabled_nf:
+        for artifact in system.get("artifacts", []):
+            if nf not in artifact.get("nf", []):
+                continue
+            nf_id = f"{artifact['id']}#nf:{nf}"
+            if evidence.has(nf_id):
+                continue
+            actions.append(
+                Action(
+                    name=f"extract_nf:{nf}",
+                    target_id=nf_id,
+                    level=artifact["level"],
+                    estimated_cost=Cost(tokens=int(40 * artifact.get("relevance", 1.0)), tool=1),
+                    verification_method="symbolic",
+                    prerequisites=tuple(artifact.get("prerequisites", [])),
+                    expected_delta_coverage=artifact.get("relevance", 0.1) * 0.15,
+                    expected_delta_confidence=0.15,
+                    expected_delta_risk_reduction=0.25,
+                )
+            )
     return actions
 
 
@@ -286,13 +346,27 @@ def expected_utility(
 
 
 def execute_action(action: Action, system: dict[str, Any]) -> ActionResult:
-    artifact = next(a for a in system["artifacts"] if a["id"] == action.target_id)
+    target_id = action.target_id
+    nf: str | None = None
+    if "#nf:" in target_id:
+        base_id, nf = target_id.split("#nf:", 1)
+    else:
+        base_id = target_id
+    artifact = next(a for a in system["artifacts"] if a["id"] == base_id)
+    if nf is None:
+        kind = artifact.get("kind", "artifact")
+        content = artifact["content"]
+        location = artifact.get("location", artifact["id"])
+    else:
+        kind = f"nf:{nf}"
+        content = artifact.get(f"nf_{nf}", f"{nf}:{artifact['content']}")
+        location = f"{base_id}#{nf}"
     evidence = Evidence(
-        id=artifact["id"],
-        content=artifact["content"],
-        kind=artifact.get("kind", "artifact"),
+        id=target_id,
+        content=content,
+        kind=kind,
         source=artifact.get("source", "disk"),
-        location=artifact["id"],
+        location=location,
         level=artifact["level"],
         timestamp=artifact.get("timestamp", 0),
     )
@@ -301,7 +375,7 @@ def execute_action(action: Action, system: dict[str, Any]) -> ActionResult:
     verification = Verification(
         confidence=confidence,
         status=status,
-        provenance=artifact["id"],
+        provenance=target_id,
         method=action.verification_method,
         timestamp=evidence.timestamp,
     )
@@ -327,7 +401,30 @@ def verify_evidence(
 
 
 def detect_conflicts(evidence: EvidenceStore, beliefs: BeliefStore) -> list[Conflict]:
-    return []
+    by_scope: dict[str, list[Belief]] = {}
+    for belief in beliefs:
+        by_scope.setdefault(belief.scope, []).append(belief)
+    conflicts: list[Conflict] = []
+    for scope, group in by_scope.items():
+        positions = {b.position for b in group}
+        if len(positions) <= 1:
+            continue
+        primary = group[0].position
+        evidence_for = tuple(d for b in group if b.position == primary for d in b.dependencies)
+        evidence_against = tuple(d for b in group if b.position != primary for d in b.dependencies)
+        confidences = [b.confidence for b in group]
+        severity = min(1.0, 0.5 + max(confidences) - min(confidences))
+        conflicts.append(
+            Conflict(
+                claim=f"divergencia en {scope}",
+                evidence_for=evidence_for,
+                evidence_against=evidence_against,
+                scope=scope,
+                severity=severity,
+                resolution_status="open",
+            )
+        )
+    return conflicts
 
 
 def synthesize_report(
@@ -346,6 +443,19 @@ def synthesize_report(
         "evidence_count": len(evidence),
         "belief_count": len(beliefs),
         "conflict_count": len(conflicts),
+        "compressed_count": sum(1 for e in evidence if e.compressed),
+        "evidence_kinds": sorted({e.kind for e in evidence}),
+        "conflicts": [
+            {
+                "claim": c.claim,
+                "scope": c.scope,
+                "severity": round(c.severity, 4),
+                "evidence_for": list(c.evidence_for),
+                "evidence_against": list(c.evidence_against),
+                "resolution_status": c.resolution_status,
+            }
+            for c in conflicts
+        ],
         "coverage": round(coverage, 4),
         "residual_risk": round(residual_risk, 4),
         "budget_remaining": {
@@ -394,7 +504,12 @@ def analyze_system(system: dict[str, Any], goal: dict[str, Any], budget: Budget,
         verification = verify_evidence(new_evidence, action.verification_method, system)
         beliefs.update(new_evidence, verification, goal["name"])
         conflicts.merge(detect_conflicts(evidence, beliefs))
-        evidence.compress(budget, preserve_provenance=True, preserve_invariants=required_aspects)
+        beliefs.mark_conflicted(conflicts.open_scopes())
+        protected_ids: set[str] = set()
+        for conflict in conflicts:
+            protected_ids.update(conflict.evidence_for)
+            protected_ids.update(conflict.evidence_against)
+        evidence.compress(budget, preserve_provenance=True, preserve_invariants=protected_ids)
     return synthesize_report(system, goal, evidence, beliefs, conflicts, coverage, residual_risk, budget)
 
 

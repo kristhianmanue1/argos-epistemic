@@ -69,3 +69,58 @@ def test_cost_dominance():
     budget = Budget(tokens_remaining=50, tool_remaining=2)
     assert budget.can_afford(small)
     assert not budget.can_afford(big)
+
+
+def test_detects_conflict_between_doc_and_code():
+    system = {
+        "name": "divergente",
+        "artifacts": [
+            {"id": "doc_f", "content": "feature on", "location": "f_X", "level": 0, "relevance": 1.0, "kind": "doc"},
+            {"id": "code_f", "content": "feature off", "location": "f_X", "level": 4, "relevance": 1.0, "kind": "code"},
+        ],
+    }
+    goal = {"name": "g", "aspects": ["f_X"], "theta_coverage": 0.95, "rho_risk": 0.05}
+    report = analyze_system(system, goal, Budget(tokens_remaining=10000, tool_remaining=50))
+    assert report["conflict_count"] >= 1
+    conflict = report["conflicts"][0]
+    assert conflict["scope"] == "f_X"
+    assert conflict["evidence_for"]
+    assert conflict["evidence_against"]
+    assert conflict["resolution_status"] == "open"
+
+
+def test_non_functional_extractors_add_evidence():
+    system = {
+        "name": "nf",
+        "artifacts": [
+            {"id": "a", "content": "config", "level": 2, "relevance": 1.0, "kind": "config", "nf": ["sec"]},
+        ],
+    }
+    without_nf = analyze_system(
+        system,
+        {"name": "g", "aspects": ["a"], "non_functional": [], "theta_coverage": 2.0, "rho_risk": 0.0},
+        Budget(tokens_remaining=10000, tool_remaining=50),
+    )
+    with_nf = analyze_system(
+        system,
+        {"name": "g", "aspects": ["a"], "non_functional": ["sec"], "theta_coverage": 2.0, "rho_risk": 0.0},
+        Budget(tokens_remaining=10000, tool_remaining=50),
+    )
+    assert without_nf["evidence_count"] == 1
+    assert with_nf["evidence_count"] == 2
+    assert "nf:sec" in with_nf["evidence_kinds"]
+
+
+def test_compression_summarizes_when_over_capacity():
+    system = {
+        "name": "grande",
+        "artifacts": [
+            {"id": f"f{i}", "content": f"v{i}", "level": i % 5, "relevance": 1.0, "kind": f"k{i % 3}"}
+            for i in range(12)
+        ],
+    }
+    goal = {"name": "compresion", "aspects": ["x"], "theta_coverage": 2.0, "rho_risk": 0.0}
+    report = analyze_system(system, goal, Budget(tokens_remaining=100000, tool_remaining=1000))
+    assert report["evidence_count"] == 12
+    assert report["compressed_count"] >= 1
+    assert report["evidence_kinds"]
