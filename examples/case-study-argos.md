@@ -3,7 +3,7 @@
 > Demostración de la cadena **extractor real → algoritmo de §22 → reporte**. Es un
 > **autoestudio** (el sistema analizado es el propio repositorio), lo que limita
 > la independencia (ver §Riesgo residual). Generado con
-> `argos_model.extractors.analyze_path` sobre `HEAD`.
+> `argos_epistemic.extractors.analyze_path` sobre `HEAD`.
 
 ## Objetivo y aspectos
 
@@ -23,7 +23,7 @@ El extractor recorrió el árbol ignorando `.git/`, `.venv/`, `__pycache__/`,
 | L0 intención | 3 | `readme.md`, `AGENTS.md`, `AN-KLA.md` |
 | L1 topología | 1 | grafo de directorios (árbol) |
 | L2 entorno | 3 | `pyproject.toml`, `requirements.txt`, `.gitignore` |
-| L4 código | 4 | `argos_model/*.py`, `tests/test_smoke.py` |
+| L4 código | 4 | `argos_epistemic/*.py`, `tests/test_smoke.py` |
 | L5 prueba | 1 | `tests/test_smoke.py` (clasificado como test) |
 
 `relevance` de cada artefacto = aproximación de `R(x|G)` por nombre/extensión
@@ -93,7 +93,7 @@ presupuesto.
 
 ```bash
 .venv/bin/python -c "
-from argos_model import extract_system, analyze_system, Budget
+from argos_epistemic import extract_system, analyze_system, Budget
 s = extract_system('.', goal={'name':'refactorizacion','aspects':['algorithm','config','test','doc']})
 g = {'name':'refactorizacion','aspects':['algorithm','config','test','doc'],'non_functional':['sec'],'theta_coverage':0.8,'rho_risk':0.2}
 print(analyze_system(s, g, Budget(tokens_remaining=200000, tool_remaining=2000)))

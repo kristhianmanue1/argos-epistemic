@@ -1,4 +1,4 @@
-from argos_model import Budget, Cost, analyze_path, analyze_system, build_call_graph, extract_system, run
+from argos_epistemic import Budget, Cost, analyze_path, analyze_system, build_call_graph, extract_system, run
 
 
 def test_run_terminates_and_synthesizes():
@@ -112,7 +112,7 @@ def test_conflict_tolerates_rewording_but_flags_divergence():
 
 
 def test_q_g_invariant_holds_under_compression_and_breaks_on_eviction():
-    from argos_model import Belief, BeliefStore, Evidence, EvidenceStore, q_g_invariant
+    from argos_epistemic import Belief, BeliefStore, Evidence, EvidenceStore, q_g_invariant
 
     store = EvidenceStore()
     ev = Evidence(id="e1", content="important", kind="doc", source="disk", location="l", level=0)
@@ -180,7 +180,7 @@ def test_extract_system_over_real_repo():
     assert "L1:topology" in ids
     assert "readme.md" in ids
     assert "pyproject.toml" in ids
-    assert "argos_model/algorithm.py" in ids
+    assert "argos_epistemic/algorithm.py" in ids
     levels = {a["level"] for a in system["artifacts"]}
     assert {0, 1, 2, 4}.issubset(levels)
     assert all(0.0 <= a["relevance"] <= 1.0 for a in system["artifacts"])
@@ -207,10 +207,10 @@ def test_analyze_path_terminates_on_real_repo():
 def test_call_graph_detects_known_call():
     from pathlib import Path
 
-    py = [Path("argos_model/algorithm.py")]
+    py = [Path("argos_epistemic/algorithm.py")]
     cg = build_call_graph(Path("."), py)
-    caller = "argos_model/algorithm.py::analyze_system"
-    callee = "argos_model/algorithm.py::execute_action"
+    caller = "argos_epistemic/algorithm.py::analyze_system"
+    callee = "argos_epistemic/algorithm.py::execute_action"
     assert caller in cg.nodes
     assert callee in cg.nodes
     assert (caller, callee) in cg.edges
@@ -244,12 +244,12 @@ def test_s_semantic_is_pluggable_and_moves_relevance():
     )
     d = {a["id"]: a["relevance"] for a in default["artifacts"]}
     c = {a["id"]: a["relevance"] for a in custom["artifacts"]}
-    assert "s_semantic" in next(a for a in custom["artifacts"] if a["id"] == "argos_model/extractors.py")
-    assert c["argos_model/extractors.py"] >= d["argos_model/extractors.py"]
+    assert "s_semantic" in next(a for a in custom["artifacts"] if a["id"] == "argos_epistemic/extractors.py")
+    assert c["argos_epistemic/extractors.py"] >= d["argos_epistemic/extractors.py"]
 
 
 def test_git_log_summary_on_this_repo():
-    from argos_model import git_log_summary
+    from argos_epistemic import git_log_summary
 
     summary = git_log_summary(".")
     assert summary is not None
@@ -259,7 +259,7 @@ def test_git_log_summary_on_this_repo():
 
 
 def test_historical_verification_confidence():
-    from argos_model import analyze_path, Budget
+    from argos_epistemic import analyze_path, Budget
 
     report = analyze_path(
         ".",
@@ -277,23 +277,23 @@ def test_historical_verification_confidence():
 def test_impact_excludes_test_files():
     from pathlib import Path
 
-    from argos_model.callgraph import is_test_file
+    from argos_epistemic.callgraph import is_test_file
 
     cg = build_call_graph(
         Path("."),
-        [Path("argos_model/algorithm.py"), Path("tests/test_smoke.py")],
+        [Path("argos_epistemic/algorithm.py"), Path("tests/test_smoke.py")],
     )
     prod = cg.production_subgraph()
     assert all(not is_test_file(n.file) for n in prod.nodes.values())
     assert len(prod.nodes) < len(cg.nodes)
     imp = prod.impact()
-    assert imp["argos_model/algorithm.py::analyze_system"] > 0.0
+    assert imp["argos_epistemic/algorithm.py::analyze_system"] > 0.0
     summary_top = extract_system(".", goal={"name": "x", "aspects": []})["call_graph"]["top_impact"]
     assert all("test" not in entry["id"].split("::")[0].lower() for entry in summary_top)
 
 
 def test_run_pytest_yields_dynamic_evidence(tmp_path):
-    from argos_model import run_pytest
+    from argos_epistemic import run_pytest
 
     (tmp_path / "test_ok.py").write_text("def test_ok():\n    assert 1 + 1 == 2\n", encoding="utf-8")
     result = run_pytest(tmp_path, timeout=60)
@@ -303,7 +303,7 @@ def test_run_pytest_yields_dynamic_evidence(tmp_path):
 
 
 def test_analyze_path_with_dynamic_includes_run(tmp_path):
-    from argos_model import Budget
+    from argos_epistemic import Budget
 
     (tmp_path / "pyproject.toml").write_text("[project]\nname = 'fix'\nversion = '0'\n", encoding="utf-8")
     (tmp_path / "pkg.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")

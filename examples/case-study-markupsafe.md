@@ -82,7 +82,7 @@ simbólica), sin conflictos (cada `scope` con una sola `position`).
 ```bash
 git clone --depth 1 https://github.com/pallets/markupsafe.git /tmp/markupsafe
 .venv/bin/python -c "
-from argos_model import extract_system, analyze_system, Budget
+from argos_epistemic import extract_system, analyze_system, Budget
 g = {'name':'seguridad-y-refactor','aspects':['escape','native','exception','test','config'],'non_functional':['sec'],'theta_coverage':0.8,'rho_risk':0.25}
 s = extract_system('/tmp/markupsafe', goal=g)
 print(s['call_graph'])

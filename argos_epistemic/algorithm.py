@@ -604,7 +604,7 @@ def run(system: dict[str, Any] | None = None, goal: dict[str, Any] | None = None
             "artifacts": [
                 {"id": "readme.md", "content": "Modelo Epistemico Unificado", "level": 0, "relevance": 1.0, "kind": "doc"},
                 {"id": "pyproject.toml", "content": "build manifest", "level": 2, "relevance": 0.6, "kind": "config"},
-                {"id": "argos_model/algorithm.py", "content": "reference impl", "level": 4, "relevance": 0.8, "kind": "code"},
+                {"id": "argos_epistemic/algorithm.py", "content": "reference impl", "level": 4, "relevance": 0.8, "kind": "code"},
             ],
         }
     if goal is None:

@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "argos-model"
+name = "argos-epistemic"
 version = "0.1.0"
 description = "Implementacion de referencia del Modelo Epistemico Unificado (argos)"
 readme = "readme.md"
@@ -19,7 +19,7 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["argos_model"]
+packages = ["argos_epistemic"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
