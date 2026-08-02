@@ -632,7 +632,7 @@ R(x\mid G)\cdot Conf(x)
 }{
 \sum_{y\in Candidate(G)}
 R(y\mid G)
-\}
+}
 $$
 Esta segunda expresión solo es computable cuando existe una aproximación razonable del conjunto candidato.
 Por tanto, para implementación se recomienda la cobertura por aspectos (T_G), ya que no presupone conocer toda la evidencia posible.
@@ -714,13 +714,13 @@ o cuando el riesgo de no ejecutarla permite una excepción controlada.
 La siguiente acción se selecciona mediante:
 $$
 a^*
-===
+=
 \arg\max_{a\in Eligible}
 \frac{
 \mathbb{E}[\Delta Value(a\mid G)]
 }{
 Cost(a)
-\}
+}
 $$
 considerando además:
 $$
@@ -737,7 +737,7 @@ Utility(a)=
 \gamma\mathbb{E}[\Delta RiskReduction]
 }{
 WeightedCost(a)
-\}
+}
 $$
 y:
 $$
