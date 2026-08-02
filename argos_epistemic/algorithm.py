@@ -409,15 +409,32 @@ def derive_propositions(
     return props
 
 
+CORROBORATION = 1.8
+
+
+def aspect_score(props: list["Proposition"], corroboration: float = CORROBORATION) -> float:
+    """Coverage of one aspect (readme.md §12), calibrated to reward corroboration.
+
+    ``score = clamp01( Σ_pos polarity·conf / corroboration )``: a single source
+    does NOT saturate the aspect (it scores conf/corroboration, e.g. 0.9/1.8 =
+    0.5); reaching ~0.8 requires 2+ independent supporting propositions. This
+    closes the overconfidence gap exposed by the P2 benchmark, where 1 artifact
+    linking all aspects falsely reported coverage ≈ 0.9.
+    """
+    pos_mass = sum(p.polarity * p.confidence for p in props if p.polarity > 0)
+    return max(0.0, min(1.0, pos_mass / max(0.0001, corroboration)))
+
+
 def compute_coverage(
     propositions: PropositionStore,
     aspects: list[dict[str, Any]],
+    corroboration: float = CORROBORATION,
 ) -> float:
     """Per-aspect coverage (readme.md §12): Cov = Σ w_i · aspect_score(t_i).
 
-    aspect_score(t_i) = clamp01(Σ polarity·confidence) over propositions on t_i.
-    Aspects with no supporting proposition score 0 (evidence irrelevant to the
-    goal contributes nothing).
+    aspect_score rewards corroboration (see ``aspect_score``); aspects with no
+    supporting proposition score 0 (evidence irrelevant to the goal contributes
+    nothing).
     """
     if not aspects:
         return 0.0
@@ -426,8 +443,7 @@ def compute_coverage(
         by_aspect.setdefault(prop.aspect, []).append(prop)
     total = 0.0
     for aspect in aspects:
-        net = sum(p.polarity * p.confidence for p in by_aspect.get(aspect["name"], []))
-        total += aspect["weight"] * max(0.0, min(1.0, net))
+        total += aspect["weight"] * aspect_score(by_aspect.get(aspect["name"], []), corroboration)
     return max(0.0, min(1.0, total))
 
 
@@ -779,10 +795,9 @@ def synthesize_report(
     by_aspect: dict[str, list[Proposition]] = {}
     for prop in propositions:
         by_aspect.setdefault(prop.aspect, []).append(prop)
+    corroboration = goal.get("corroboration", CORROBORATION)
     aspect_scores = {
-        a["name"]: round(
-            max(0.0, min(1.0, sum(p.polarity * p.confidence for p in by_aspect.get(a["name"], [])))), 4
-        )
+        a["name"]: round(aspect_score(by_aspect.get(a["name"], []), corroboration), 4)
         for a in aspects
     }
     return {
@@ -850,7 +865,7 @@ def analyze_system(system: dict[str, Any], goal: dict[str, Any], budget: Budget,
     cost_estimated = 0
     cost_observed = 0
     while budget.has_capacity():
-        coverage = compute_coverage(propositions, required_aspects)
+        coverage = compute_coverage(propositions, required_aspects, goal.get("corroboration", CORROBORATION))
         residual_risk = compute_residual_risk(propositions, required_aspects, goal)
         if should_stop(coverage, residual_risk, conflicts, goal, budget):
             break
@@ -891,7 +906,7 @@ def analyze_system(system: dict[str, Any], goal: dict[str, Any], budget: Budget,
             protected_ids.update(conflict.evidence_for)
             protected_ids.update(conflict.evidence_against)
         evidence.compress(budget, preserve_provenance=True, preserve_invariants=protected_ids)
-    coverage = compute_coverage(propositions, required_aspects)
+    coverage = compute_coverage(propositions, required_aspects, goal.get("corroboration", CORROBORATION))
     residual_risk = compute_residual_risk(propositions, required_aspects, goal)
     return synthesize_report(
         system, goal, evidence, beliefs, propositions, conflicts, required_aspects,

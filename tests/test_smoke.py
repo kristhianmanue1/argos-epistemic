@@ -444,12 +444,13 @@ def test_h1_irrelevant_evidence_does_not_raise_coverage():
     assert report["complete"] is False
 
 
-def test_h1_coverage_is_per_aspect_and_weighted():
+def test_h1_coverage_requires_corroboration_and_is_weighted():
     system = {
         "name": "s",
         "artifacts": [
             {"id": "a1", "content": "x", "level": 0, "relevance": 1.0, "kind": "doc", "supports": [{"aspect": "alpha"}]},
-            {"id": "a2", "content": "y", "level": 0, "relevance": 1.0, "kind": "doc", "supports": [{"aspect": "beta"}]},
+            {"id": "a2", "content": "y", "level": 0, "relevance": 1.0, "kind": "doc", "supports": [{"aspect": "alpha"}]},
+            {"id": "a3", "content": "z", "level": 0, "relevance": 1.0, "kind": "doc", "supports": [{"aspect": "beta"}]},
         ],
     }
     goal = {
@@ -459,9 +460,23 @@ def test_h1_coverage_is_per_aspect_and_weighted():
         "rho_risk": 0.0,
     }
     report = analyze_system(system, goal, Budget(tokens_remaining=10000, tool_remaining=10))
-    assert report["aspect_scores"]["alpha"] > 0
-    assert report["aspect_scores"]["beta"] > 0
-    assert abs(report["coverage"] - 0.9) < 0.05  # both supported at 0.9 confidence
+    # alpha has 2 corroborating sources (mass 1.8 / 1.8 -> 1.0); beta has 1 (0.9/1.8 -> 0.5)
+    assert abs(report["aspect_scores"]["alpha"] - 1.0) < 0.02
+    assert abs(report["aspect_scores"]["beta"] - 0.5) < 0.02
+    assert abs(report["coverage"] - 0.875) < 0.03  # 0.75*1.0 + 0.25*0.5
+
+
+def test_h1_single_source_does_not_saturate_coverage():
+    system = {
+        "name": "s",
+        "artifacts": [
+            {"id": "a1", "content": "x", "level": 0, "relevance": 1.0, "kind": "doc", "supports": [{"aspect": "alpha"}]},
+        ],
+    }
+    report = analyze_system(system, {"name": "g", "aspects": ["alpha"], "theta_coverage": 2.0, "rho_risk": 0.0},
+                            Budget(tokens_remaining=10000, tool_remaining=10))
+    # one corroborating source -> 0.9/1.8 = 0.5, NOT saturated to 0.9
+    assert abs(report["aspect_scores"]["alpha"] - 0.5) < 0.02
 
 
 def test_h5_conclusions_carry_section_23_fields():
