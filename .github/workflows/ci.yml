@@ -25,5 +25,7 @@ jobs:
         run: python -c "import argos_epistemic; r=argos_epistemic.run(); assert isinstance(r, dict) and 'coverage' in r"
       - name: Case studies freshness
         run: python examples/regenerate_case_studies.py --target argos --check
+      - name: Benchmark freshness
+        run: python bench/run_benchmark.py --check
       - name: AN-KLA preflight
         run: python -m an_kla --project-root . context status
