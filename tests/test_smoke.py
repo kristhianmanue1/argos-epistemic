@@ -311,6 +311,25 @@ def test_run_isolated_basic_and_timeout(tmp_path):
     assert slow["returncode"] is None and slow["error"] == "TimeoutExpired"
 
 
+def test_embedding_semantic_better_than_lexical_on_morphology():
+    from argos_epistemic import embedding_semantic, lexical_semantic
+
+    art = "authentication module for the api"
+    goal = "auth seguridad"
+    assert embedding_semantic(art, goal) > lexical_semantic(art, goal)
+
+
+def test_l5_logs_artifact(tmp_path):
+    from argos_epistemic import logs_artifact
+
+    (tmp_path / "app.log").write_text("2026-01-01 INFO ok\n2026-01-02 ERROR boom\ntraceback", encoding="utf-8")
+    art = logs_artifact(tmp_path)
+    assert art is not None
+    assert art["run"]["error_signals"] >= 1
+    assert art["run"]["status"] == "contradicted"
+    assert art["kind"] == "logs"
+
+
 def test_l3_tree_sitter_javascript_when_available(tmp_path):
     import importlib
 

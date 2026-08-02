@@ -131,6 +131,46 @@ def lexical_semantic(artifact_text: str, goal_text: str) -> float:
     return len(a & b) / len(union) if union else 0.0
 
 
+_EMBED_DIM = 256
+
+
+def _hash_vec(text: str, n: int = 3, dim: int = _EMBED_DIM) -> list[float]:
+    """Signed-hashing char-n-gram vector (lightweight embedding surrogate).
+
+    Captures morphological relatedness (``auth`` ~ ``authentication``) without
+    external models. Not a dense semantic embedding; inject sentence-transformers
+    or an API embedder via ``semantic_fn`` for true semantics.
+    """
+    import hashlib
+
+    vec = [0.0] * dim
+    lowered = text.lower()
+    grams = {lowered[i : i + n] for i in range(max(0, len(lowered) - n + 1))}
+    grams |= _tokens(text)
+    for gram in grams:
+        if not gram:
+            continue
+        h = hashlib.blake2b(gram.encode("utf-8"), digest_size=8).digest()
+        idx = int.from_bytes(h[:4], "little") % dim
+        sign = 1.0 if (h[4] & 1) else -1.0
+        vec[idx] += sign
+    norm = sum(v * v for v in vec) ** 0.5
+    if norm:
+        vec = [v / norm for v in vec]
+    return vec
+
+
+def embedding_semantic(artifact_text: str, goal_text: str) -> float:
+    """Cosine over hashed char-n-gram embeddings. Stronger than ``lexical_semantic``.
+
+    A dependency-free embedding surrogate; for dense semantics inject an external
+    embedder (sentence-transformers / API) via ``semantic_fn``.
+    """
+    a, b = _hash_vec(artifact_text), _hash_vec(goal_text)
+    dot = sum(x * y for x, y in zip(a, b))
+    return max(0.0, min(1.0, (dot + 1.0) / 2.0))
+
+
 def _goal_text(goal: dict[str, Any]) -> str:
     return " ".join(str(a) for a in goal.get("aspects", [])) + " " + str(goal.get("name", ""))
 
@@ -296,16 +336,23 @@ def analyze_path(
     budget: Any = None,
     run_dynamic: bool = False,
     run_history: bool = False,
+    run_logs: bool = False,
     dynamic_timeout: int = 120,
     semantic_fn=None,
 ) -> dict[str, Any]:
     from .algorithm import Budget, analyze_system
     from .dynamic import dynamic_artifact
     from .history import history_artifact
+    from .logs import logs_artifact
 
     if budget is None:
         budget = Budget(tokens_remaining=200000, tool_remaining=2000)
     system = extract_system(root, goal, semantic_fn=semantic_fn)
+    if run_logs:
+        artifact = logs_artifact(root, goal)
+        if artifact is not None:
+            system["artifacts"].append(artifact)
+            system["logs"] = artifact.pop("run", None)
     if run_history:
         artifact = history_artifact(root, goal)
         if artifact is not None:
