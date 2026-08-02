@@ -44,6 +44,46 @@ MARKUPSAFE_GOAL = {
     "aspect_linker": embedding_semantic,
     "link_threshold": 0.30,
 }
+ANKLA_GOAL = {
+    "name": "auditoria-memoria",
+    "aspects": ["memory", "write", "retrieval", "canonical", "test"],
+    "non_functional": ["sec"],
+    "theta_coverage": 0.8,
+    "rho_risk": 0.25,
+    "aspect_linker": embedding_semantic,
+    "link_threshold": 0.30,
+}
+
+# Casos tercerizados: se clonan shallow desde su origin público (reproducible,
+# no dependen de un path local). Regenerados oportunamente (requieren red); el
+# único caso enforced en CI es `argos` (autoestudio determinista).
+THIRD_PARTY_CASES = {
+    "markupsafe": {
+        "repo": "https://github.com/pallets/markupsafe.git",
+        "goal": MARKUPSAFE_GOAL,
+        "notes": [
+            "Independiente: analizador y analizado son proyectos distintos.",
+            "L3 es simbólico best-effort (no ve C-extensions nativas); `S_semantic` "
+            "es surrogate léxico.",
+            "Sin L5 dinámico sobre terceros por defecto (confianza + dependencias de "
+            "build); el extractor está disponible bajo `analyze_path(run_dynamic=True)`.",
+        ],
+    },
+    "an-kla-memory": {
+        "repo": "https://github.com/kristhianmanue1/an-kla-memory.git",
+        "goal": ANKLA_GOAL,
+        "notes": [
+            "Independiente en repositorio, pero an-kla-memory es **dependencia del propio "
+            "argos** (es la memoria local que usa este repo): no es totalmente ajeno.",
+            "L4 aquí es particularmente informativo: la lib implementa gobernanza de "
+            "escritura (write-policy) y canonicalización JSON, por eso muchas funciones "
+            "levantan `ValueError` (validates) y el top de impacto L3 cae sobre "
+            "`commit_write_plan`/`main` (path crítico de la escritura gobernada).",
+            "L3/L4 simbólicos best-effort (Python AST); `S_semantic` surrogate léxico. "
+            "Sin L5 dinámico sobre terceros por defecto.",
+        ],
+    },
+}
 
 
 def _test_count() -> int:
@@ -143,13 +183,13 @@ def _argos_md() -> str:
     return "\n".join(lines)
 
 
-def _markupsafe_md() -> str | None:
+def _third_party_md(slug: str, case: dict) -> str | None:
     import shutil
 
-    dest = Path(tempfile.mkdtemp(prefix="markupsafe-"))
+    dest = Path(tempfile.mkdtemp(prefix=f"{slug}-"))
     try:
         proc = subprocess.run(
-            ["git", "clone", "--depth", "1", "https://github.com/pallets/markupsafe.git", str(dest)],
+            ["git", "clone", "--depth", "1", case["repo"], str(dest)],
             capture_output=True, text=True, timeout=120,
         )
         if proc.returncode != 0:
@@ -158,20 +198,21 @@ def _markupsafe_md() -> str | None:
             ["git", "-C", str(dest), "log", "-1", "--format=%h %an (%ad)"],
             capture_output=True, text=True,
         ).stdout.strip()
-        system, report = _run(dest, MARKUPSAFE_GOAL)
+        system, report = _run(dest, case["goal"])
         cg = system.get("call_graph", {})
         bh = system.get("behavior", {})
         top = ", ".join(f"{n['id'].split('::')[-1]} ({n['impact']})" for n in cg.get("top_impact", [])[:4])
     finally:
         shutil.rmtree(dest, ignore_errors=True)
+    goal = case["goal"]
     lines = [
-        "# Caso de estudio: markupsafe (tercerizado)",
+        f"# Caso de estudio: {slug} (tercerizado)",
         "",
         "> Generado por `examples/regenerate_case_studies.py`. Validación "
-        "**independiente** sobre un repo público ajeno. Fuente "
-        "`https://github.com/pallets/markupsafe`, " + (head or "HEAD") + ".",
+        "**independiente** sobre un repo público. Fuente "
+        f"`{case['repo']}`, " + (head or "HEAD") + ".",
         "",
-        f"Objetivo `G={MARKUPSAFE_GOAL['name']}`, aspectos `{MARKUPSAFE_GOAL['aspects']}`.",
+        f"Objetivo `G={goal['name']}`, aspectos `{goal['aspects']}`.",
         "",
         "## Extracción",
         "",
@@ -198,19 +239,15 @@ def _markupsafe_md() -> str | None:
         "",
         "## Interpretación y riesgo residual",
         "",
-        "- Independiente: analizador y analizado son proyectos distintos.",
-        "- L3 es simbólico best-effort (no ve C-extensions nativas); `S_semantic` "
-        "es surrogate léxico.",
-        "- Sin L5 dinámico sobre terceros por defecto (confianza + dependencias de "
-        "build); el extractor está disponible bajo `analyze_path(run_dynamic=True)`.",
-        "",
     ]
+    lines += [f"- {note}" for note in case.get("notes", [])]
+    lines.append("")
     return "\n".join(lines)
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--target", choices=["argos", "markupsafe", "all"], default="all")
+    ap.add_argument("--target", choices=["argos", *THIRD_PARTY_CASES, "all"], default="all")
     ap.add_argument("--check", action="store_true", help="compare argos output to the committed file")
     args = ap.parse_args()
 
@@ -226,13 +263,14 @@ def main() -> int:
     if args.target in ("argos", "all"):
         (ROOT / "examples" / "case-study-argos.md").write_text(_argos_md(), encoding="utf-8")
         print("wrote examples/case-study-argos.md")
-    if args.target in ("markupsafe", "all"):
-        md = _markupsafe_md()
-        if md is not None:
-            (ROOT / "examples" / "case-study-markupsafe.md").write_text(md, encoding="utf-8")
-            print("wrote examples/case-study-markupsafe.md")
-        else:
-            print("markupsafe clone failed; left unchanged")
+    for slug, case in THIRD_PARTY_CASES.items():
+        if args.target in (slug, "all"):
+            md = _third_party_md(slug, case)
+            if md is not None:
+                (ROOT / f"examples/case-study-{slug}.md").write_text(md, encoding="utf-8")
+                print(f"wrote examples/case-study-{slug}.md")
+            else:
+                print(f"{slug} clone failed; left unchanged")
     return 0
 
 

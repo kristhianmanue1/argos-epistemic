@@ -6,8 +6,8 @@ Tests en verde: **54**. Objetivo `G=refactorizacion`, aspectos `['algorithm', 'c
 
 ## Extracción (discovery barato + índice L3)
 
-- Artefactos descubiertos: **31** (por nivel `{0: 3, 1: 1, 2: 4, 3: 1, 4: 21, 5: 1}`, por tipo `{'topology': 1, 'callgraph': 1, 'behavior': 1, 'config': 4, 'doc': 7, 'code': 16, 'test': 1}`).
-- Grafo de llamadas L3 (Python AST, subgrafo de producción): 204 nodos / 283 aristas (147 producción). Top impacto: main (0.644), _argos_md (0.63), _markupsafe_md (0.623), analyze_path (0.616).
+- Artefactos descubiertos: **32** (por nivel `{0: 3, 1: 1, 2: 4, 3: 1, 4: 22, 5: 1}`, por tipo `{'topology': 1, 'callgraph': 1, 'behavior': 1, 'config': 4, 'doc': 8, 'code': 16, 'test': 1}`).
+- Grafo de llamadas L3 (Python AST, subgrafo de producción): 204 nodos / 283 aristas (147 producción). Top impacto: main (0.644), _argos_md (0.63), _third_party_md (0.623), analyze_path (0.616).
 - Comportamiento L4 (AST best-effort, Σ_4): 1 fn levantan, 54 con asserts, 9 mutan self, 0 validan (157/216 producción).
 
 ## Reporte
