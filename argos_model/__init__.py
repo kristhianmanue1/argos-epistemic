@@ -12,6 +12,7 @@ from .algorithm import (
     analyze_system,
     run,
 )
+from .extractors import analyze_path, extract_system
 
 __all__ = [
     "Action",
@@ -25,5 +26,7 @@ __all__ = [
     "EvidenceStore",
     "Verification",
     "analyze_system",
+    "analyze_path",
+    "extract_system",
     "run",
 ]

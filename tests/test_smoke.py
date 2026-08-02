@@ -1,4 +1,4 @@
-from argos_model import Budget, Cost, analyze_system, run
+from argos_model import Budget, Cost, analyze_path, analyze_system, extract_system, run
 
 
 def test_run_terminates_and_synthesizes():
@@ -124,3 +124,33 @@ def test_compression_summarizes_when_over_capacity():
     assert report["evidence_count"] == 12
     assert report["compressed_count"] >= 1
     assert report["evidence_kinds"]
+
+
+def test_extract_system_over_real_repo():
+    system = extract_system(".", goal={"name": "refactor", "aspects": ["algorithm"]})
+    ids = {a["id"] for a in system["artifacts"]}
+    assert "L1:topology" in ids
+    assert "readme.md" in ids
+    assert "pyproject.toml" in ids
+    assert "argos_model/algorithm.py" in ids
+    levels = {a["level"] for a in system["artifacts"]}
+    assert {0, 1, 2, 4}.issubset(levels)
+    assert all(0.0 <= a["relevance"] <= 1.0 for a in system["artifacts"])
+
+
+def test_extract_ignores_venv_and_cache():
+    system = extract_system(".")
+    ids = {a["id"] for a in system["artifacts"]}
+    assert not any(part in ids for part in (".venv", "__pycache__", ".an-kla"))
+
+
+def test_analyze_path_terminates_on_real_repo():
+    report = analyze_path(
+        ".",
+        goal={"name": "seguridad", "aspects": ["algorithm", "config"], "theta_coverage": 0.9, "rho_risk": 0.1},
+        budget=Budget(tokens_remaining=50000, tool_remaining=400),
+    )
+    assert report["system"] is not None
+    assert report["evidence_count"] >= 1
+    assert isinstance(report["levels_covered"], list)
+    assert report["budget_remaining"]["tokens"] >= 0

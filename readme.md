@@ -58,9 +58,9 @@ $$
 Ejemplos:
 $$
 G\in
-{
+\{
 debugging,\ auditoría,\ refactorización,\ migración,\ seguridad,\ rendimiento,\ documentación
-}
+\}
 $$
 El objetivo determina:
 * qué evidencia es relevante;
@@ -124,9 +124,9 @@ Lee:
 Produce:
 $$
 \Sigma_0=
-{
+\{
 propósito,\ dominio,\ usuarios,\ restricciones,\ decisiones\ declaradas
-}
+\}
 $$
 La evidencia de (L_0) no constituye verdad del sistema. Constituye una colección inicial de afirmaciones e hipótesis declaradas.
 ---
@@ -142,9 +142,9 @@ Lee:
 Produce:
 $$
 \Sigma_1=
-{
+\{
 grafo\ topológico,\ límites,\ módulos,\ relaciones\ estructurales
-}
+\}
 $$
 La salida debe representarse como grafo, no como listado plano de archivos.
 ---
@@ -161,9 +161,9 @@ Lee:
 Produce:
 $$
 \Sigma_2=
-{
+\{
 stack,\ versiones,\ configuración,\ proceso\ de\ build,\ entorno\ declarado
-}
+\}
 $$
 (L_2) es fuente primaria para el estado declarado o reproducible, pero no es necesariamente fuente de verdad del estado desplegado.
 Debe contrastarse con:
@@ -187,9 +187,9 @@ Lee:
 Produce:
 $$
 \Sigma_3=
-{
+\{
 grafo\ inicial\ de\ control,\ contratos,\ vocabulario,\ fronteras
-}
+\}
 $$
 Este nivel permite estimar:
 * flujos;
@@ -212,9 +212,9 @@ Lee:
 Produce:
 $$
 \Sigma_4=
-{
+\{
 invariantes,\ reglas,\ estados,\ efectos,\ excepciones,\ comportamiento
-}
+\}
 $$
 Debe distinguirse entre:
 * comportamiento declarado;
@@ -239,9 +239,9 @@ Lee o ejecuta:
 Produce:
 $$
 \Sigma_5=
-{
+\{
 comportamiento\ observado,\ estado\ desplegado,\ historia,\ fallos,\ concurrencia
-}
+\}
 $$
 Aunque (L_5) suele activarse después de los niveles estructurales, puede invocarse anticipadamente cuando el objetivo (G) exige evidencia dinámica inmediata.
 ---
@@ -249,24 +249,24 @@ Aunque (L_5) suele activarse después de los niveles estructurales, puede invoca
 Las propiedades no funcionales no constituyen un nivel (L_6). Son dimensiones transversales:
 $$
 L_{\mathrm{NF}}=
-{
+\{
 L_{\mathrm{sec}},
 L_{\mathrm{privacy}},
 L_{\mathrm{perf}},
 L_{\mathrm{reliability}},
 L_{\mathrm{compliance}},
 L_{\mathrm{operability}}
-}
+\}
 $$
 Su activación depende de (G):
 $$
 L_{\mathrm{NF}}^*(S,G)
-======================
-{
+=
+\{
 L_{\mathrm{NF}}^i(S)
 \mid
 R(L_{\mathrm{NF}}^i\mid G)>\tau_{\mathrm{NF}}
-}
+\}
 $$
 Ejemplos:
 $$
@@ -326,11 +326,11 @@ $$
 El extractor filtrado queda definido como:
 $$
 L_n^*(S,G,t)=
-{
+\{
 x\in L_n(S,t)
 \mid
 R(x\mid G)\geq\tau_n
-}
+\}
 $$
 El umbral (\tau_n) puede determinarse mediante:
 * percentil de relevancia;
@@ -340,6 +340,17 @@ El umbral (\tau_n) puede determinarse mediante:
 * objetivo;
 * costo marginal.
 Cuando el presupuesto disminuye, (\tau_n) puede aumentar para hacer la selección más estricta.
+## 6.1 Computabilidad y estimadores
+Las fórmulas de (R(x\mid G)) (§6) y (Value) (§20) mezclan términos de naturaleza distinta. Para no presentar como computable lo que no lo es, se declara la clase de cada término y su estimador práctico:
+* (Freshness(x)): **computable**; (e^{-\lambda_n(t-t_x)}) con (t_x) de mtime/git (§14).
+* (Risk(x,G)): **tool-measured**; severidad por tipo de artefacto y hallazgos de linter, tests o CVE (L5/L_NF).
+* (Impact(x,G)): **tool-measured**; radio de impacto sobre el grafo de dependencias/llamadas (L1/L3).
+* (Centrality(x)): **tool-measured**; centralidad (pagerank/betweenness) sobre el grafo L1/L3.
+* (Traceability(\phi_E(E'))): **computable**; vale (1) sii cada creencia resuelve a evidencia con (V) completa (§8, §10).
+* (Contradiction), (Staleness) en (Value): **mixto**; (Contradiction) se deriva de ConflictStore (§11); (Staleness=1-Freshness).
+* (S_{\mathrm{semantic}}(x,G)): **LLM-approximated**; similitud evidencia(\leftrightarrow)objetivo. No tiene estimador cerrado: se aproxima con un modelo y su incertidumbre debe propagarse como dependencia (§10).
+Implicancia operativa: los términos `tool-measured` sólo son computables cuando el extractor correspondiente existe. En la implementación de referencia (`argos_model/`) los extractores (L_1)–(L_5) no están implementados y (R) se aproxima por la `relevance` declarada en cada artefacto; (S_{\mathrm{semantic}}) no se computa. Por tanto la referencia ejecutable valida terminación y trazabilidad del bucle, no la fidelidad cuantitativa de (R) ni de (Value).
+Notación: las llaves literales de conjuntos se escriben (\{\,\}); el modo display usa ($$$\dots$$$).
 ---
 # 7. Separación entre evidencia e inferencia
 El modelo debe separar obligatoriamente dos estados.
@@ -433,7 +444,7 @@ La verificación no debe representarse únicamente como un escalar.
 Se define:
 $$
 V(x,\Sigma_{\mathrm{obs}})
-==========================
+=
 (
 c_x,
 s_x,
@@ -451,13 +462,13 @@ donde:
 Los estados posibles son:
 $$
 s_x\in
-{
+\{
 supported,
 weak,
 unknown,
 conflicted,
 contradicted
-}
+\}
 $$
 ## 9.1 Tipos de verificación
 ### Determinista
@@ -590,9 +601,9 @@ La cobertura permite determinar si el contexto acumulado es suficiente.
 Sea (T_G) el conjunto de aspectos requeridos por el objetivo:
 $$
 T_G=
-{
+\{
 t_1,t_2,\dots,t_m
-}
+\}
 $$
 Cada aspecto tiene un peso:
 $$
@@ -621,7 +632,7 @@ R(x\mid G)\cdot Conf(x)
 }{
 \sum_{y\in Candidate(G)}
 R(y\mid G)
-}
+\}
 $$
 Esta segunda expresión solo es computable cuando existe una aproximación razonable del conjunto candidato.
 Por tanto, para implementación se recomienda la cobertura por aspectos (T_G), ya que no presupone conocer toda la evidencia posible.
@@ -678,7 +689,7 @@ La jerarquía (L_0\rightarrow L_5) no debe modelarse como una restricción absol
 En su lugar, se define un conjunto de acciones:
 $$
 A=
-{
+\{
 extract,
 inspect,
 trace,
@@ -687,7 +698,7 @@ verify,
 compress,
 rollback,
 synthesize
-}
+\}
 $$
 Cada acción (a) tiene prerequisitos:
 $$
@@ -709,7 +720,7 @@ a^*
 \mathbb{E}[\Delta Value(a\mid G)]
 }{
 Cost(a)
-}
+\}
 $$
 considerando además:
 $$
@@ -726,7 +737,7 @@ Utility(a)=
 \gamma\mathbb{E}[\Delta RiskReduction]
 }{
 WeightedCost(a)
-}
+\}
 $$
 y:
 $$
@@ -793,11 +804,11 @@ El nivel de retroceso se determina mediante las dependencias de la afirmación:
 $$
 k=
 \min
-{
+\{
 nivel(d)
 \mid
 d\in Dep(x),\ d\text{ no resuelto}
-}
+\}
 $$
 No siempre se debe retroceder al nivel inmediatamente anterior. Debe regresarse al origen causal de la incertidumbre.
 ---
@@ -853,7 +864,7 @@ y:
 $$
 \forall b\in M:
 V(b,\Sigma_{\mathrm{obs}})
-==========================
+=
 (c_b,s_b,P_b,m_b,t_b)
 $$
 No debe exigirse:
@@ -896,8 +907,9 @@ Value=
 \gamma RiskReduction
 +
 \eta Traceability
------------------
-## \mu Contradiction
+-
+\mu Contradiction
+-
 \nu Staleness
 $$
 La jerarquía (L_0\rightarrow L_5) constituye una heurística de precedencia para aproximar este óptimo, no el objetivo en sí mismo.
