@@ -12,6 +12,8 @@ heuristica por nombre/extension condicionada al objetivo ``G``.
 
 from __future__ import annotations
 
+import math
+import time
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -72,6 +74,32 @@ L2_SUFFIXES = (".toml", ".cfg", ".ini", ".yml", ".yaml", ".lock")
 
 _READ_LIMIT = 8192
 MAX_CODE_ARTIFACTS = 400
+
+# Tasas de decaimiento por nivel (readme.md §14): λ0 < λ1 < λ2 ≈ λ4 < λ3 < λ5.
+# Tasas diarias: L0 (docs) decae más lento, L5 (runtime/logs) más rápido.
+FRESHNESS_LAMBDA = {
+    0: 1.0 / 365,
+    1: 1.0 / 240,
+    2: 1.0 / 120,
+    3: 1.0 / 60,
+    4: 1.0 / 120,
+    5: 1.0 / 21,
+}
+
+
+def freshness(level: int, t_x: float, t_now: float) -> float:
+    """Vigencia temporal de la evidencia (readme.md §14): ``e^{-λ_n(t - t_x)}``.
+
+    Devuelve 1.0 (neutral, sin penalización) cuando los timestamps no están
+    disponibles o la evidencia es futura, de modo que fixtures sintéticos sin
+    mtime no se anulán espurios. La granularidad es por día entero: basta para
+    un modelo de referencia y garantiza determinismo dentro del mismo día.
+    """
+    if t_x <= 0 or t_now <= 0 or t_now <= t_x:
+        return 1.0
+    lam = FRESHNESS_LAMBDA.get(level, 1.0 / 120)
+    days = max(0, int((t_now - t_x) // 86400))
+    return max(0.0, min(1.0, math.exp(-lam * days)))
 
 
 def _walk(root: Path, ignores: set[str]) -> list[Path]:
@@ -181,12 +209,17 @@ def _blend_relevance(
     goal: dict[str, Any],
     metrics: dict[str, dict[str, float]] | None,
     semantic_fn,
-) -> tuple[float, float, float, float]:
-    """Relevance blending: lexical + S_semantic + tool-measured L3 terms.
+    level: int = 4,
+    t_x: float = 0.0,
+    t_now: float = 0.0,
+) -> tuple[float, float, float, float, float]:
+    """Relevance blending: lexical + S_semantic + tool-measured L3 + Freshness.
 
-    Weights: lexical 0.45, S_semantic 0.20, impact 0.20, centrality 0.15.
-    ``S_semantic`` uses ``semantic_fn`` (default ``lexical_semantic`` surrogate,
-    non-faithful per §6.1). Returns (relevance, s_semantic, impact, centrality).
+    Pesos: lexical 0.40, S_semantic 0.18, impact 0.18, centrality 0.12,
+    freshness 0.12 (readme.md §6 + §14). ``S_semantic`` usa ``semantic_fn``
+    (surrogate ``lexical_semantic`` por defecto, no fiel según §6.1);
+    ``freshness`` es ``e^{-λ_n(t-t_x)}`` (§14, computable vía mtime/git).
+    Devuelve (relevance, s_semantic, impact, centrality, freshness).
     """
     sim = semantic_fn or lexical_semantic
     lexical = _relevance(rel_path, goal)
@@ -196,8 +229,12 @@ def _blend_relevance(
     if metrics and rel_path in metrics:
         impact = float(metrics[rel_path].get("impact", 0.0))
         centrality = float(metrics[rel_path].get("centrality", 0.0))
-    relevance = min(1.0, 0.45 * lexical + 0.20 * s_sem + 0.20 * impact + 0.15 * centrality)
-    return relevance, s_sem, impact, centrality
+    fresh = freshness(level, t_x, t_now)
+    relevance = min(
+        1.0,
+        0.40 * lexical + 0.18 * s_sem + 0.18 * impact + 0.12 * centrality + 0.12 * fresh,
+    )
+    return relevance, s_sem, impact, centrality, fresh
 
 
 def _non_functional(rel_path: str) -> list[str]:
@@ -226,6 +263,7 @@ def extract_system(
     cg = build_multi_call_graph(root, files)
     metrics = module_metrics(cg)
     sim = semantic_fn or lexical_semantic
+    now = time.time()
     artifacts: list[dict[str, Any]] = [
         {
             "id": "L1:topology",
@@ -271,7 +309,10 @@ def extract_system(
             is_test = "test" in base or rel.lower().startswith(("tests/", "test/", "spec/"))
             kind = "test" if is_test else ("doc" if path.suffix == ".md" else "code")
             level = 5 if is_test else 4
-            relevance, s_sem, impact, centrality = _blend_relevance(rel, content, goal, metrics, sim)
+            mtime = path.stat().st_mtime
+            relevance, s_sem, impact, centrality, fresh = _blend_relevance(
+                rel, content, goal, metrics, sim, level=level, t_x=mtime, t_now=now
+            )
             artifact: dict[str, Any] = {
                 "id": rel,
                 "content": content,
@@ -282,6 +323,8 @@ def extract_system(
                 "s_semantic": s_sem,
                 "impact": impact,
                 "centrality": centrality,
+                "freshness": fresh,
+                "timestamp": int(mtime),
             }
             nf = _non_functional(rel)
             if nf:

@@ -11,6 +11,7 @@ from .algorithm import (
     Verification,
     analyze_system,
     capacity_for_budget,
+    propagate_confidence,
     q_g_invariant,
     run,
 )
@@ -55,6 +56,7 @@ __all__ = [
     "history_artifact",
     "lexical_semantic",
     "logs_artifact",
+    "propagate_confidence",
     "q_g_invariant",
     "register_l3_extractor",
     "run_isolated",

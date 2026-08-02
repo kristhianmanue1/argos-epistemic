@@ -673,3 +673,93 @@ def test_analyze_path_with_dynamic_includes_run(tmp_path):
     assert "test-run" in kinds
     dyn = [c for c in report["conclusions"] if c["claim"].startswith("test-run@")]
     assert dyn and dyn[0]["status"] == "supported" and dyn[0]["confidence"] >= 0.9
+
+
+def test_s10_confidence_propagation_clamps_to_weakest_dependency():
+    from argos_epistemic import Belief, BeliefStore, propagate_confidence
+
+    beliefs = BeliefStore()
+    beliefs._items.append(Belief(claim="strong_root", confidence=0.95, status="supported",
+                                 provenance="e1", dependencies=("e1",)))
+    beliefs._items.append(Belief(claim="weak_root", confidence=0.30, status="weak",
+                                 provenance="e2", dependencies=("e2",)))
+    beliefs._items.append(Belief(claim="rests_on_strong", confidence=0.99, status="supported",
+                                 provenance="x", dependencies=("strong_root",)))
+    beliefs._items.append(Belief(claim="rests_on_weak", confidence=0.99, status="supported",
+                                 provenance="x", dependencies=("weak_root",)))
+
+    def resolver(dep_id):
+        for b in beliefs:
+            if b.claim == dep_id:
+                return b.confidence
+        return None
+
+    propagate_confidence(beliefs, resolver)
+    by_claim = {b.claim: b.confidence for b in beliefs}
+    assert by_claim["rests_on_strong"] == 0.95  # clampeada por la raíz fuerte
+    assert by_claim["rests_on_weak"] == 0.30    # clampeada por la raíz débil
+    assert by_claim["strong_root"] == 0.95      # hoja sin cambios
+    assert by_claim["weak_root"] == 0.30        # hoja sin cambios
+
+
+def test_s10_propagation_is_noop_when_dependency_matches():
+    from argos_epistemic import Belief, BeliefStore, propagate_confidence
+
+    beliefs = BeliefStore()
+    beliefs._items.append(Belief(claim="c", confidence=0.9, status="supported",
+                                 provenance="e1", dependencies=("e1",)))
+    propagate_confidence(beliefs, lambda d: 0.9 if d == "e1" else None)
+    assert beliefs._items[0].confidence == 0.9  # no spurious clamp
+
+
+def test_s10_chain_propagation_converges_transitively():
+    from argos_epistemic import Belief, BeliefStore, propagate_confidence
+
+    beliefs = BeliefStore()
+    beliefs._items.append(Belief(claim="leaf", confidence=0.20, status="weak",
+                                 provenance="e", dependencies=("e",)))
+    beliefs._items.append(Belief(claim="mid", confidence=0.99, status="supported",
+                                 provenance="e", dependencies=("leaf",)))
+    beliefs._items.append(Belief(claim="top", confidence=0.99, status="supported",
+                                 provenance="e", dependencies=("mid",)))
+
+    def resolver(dep_id):
+        for b in beliefs:
+            if b.claim == dep_id:
+                return b.confidence
+        return None
+
+    propagate_confidence(beliefs, resolver)
+    by_claim = {b.claim: b.confidence for b in beliefs}
+    assert by_claim["mid"] == 0.20   # clamp transitivo en 2 saltos
+    assert by_claim["top"] == 0.20   # propagado hasta la cima
+
+
+def test_s14_freshness_decays_with_age_and_is_neutral_without_timestamp():
+    from argos_epistemic.extractors import freshness
+
+    assert freshness(4, 0.0, 1_700_000_000.0) == 1.0  # sin t_x -> neutral
+    assert freshness(4, 1_700_000_000.0, 0.0) == 1.0  # sin t_now -> neutral
+    now = 1_700_000_000.0
+    old = freshness(5, now - 86400 * 21, now)  # 21 días, L5
+    recent = freshness(5, now - 86400, now)    # 1 día, L5
+    assert 0.0 < old < recent < 1.0
+    age = now - 86400 * 60
+    assert freshness(0, age, now) > freshness(5, age, now)  # L0 más lento que L5
+
+
+def test_s14_freshness_exposed_on_code_artifacts():
+    system = extract_system(".", goal={"name": "refactor", "aspects": ["algorithm"]})
+    code = next(a for a in system["artifacts"] if a["id"] == "argos_epistemic/algorithm.py")
+    assert "freshness" in code
+    assert "timestamp" in code
+    assert 0.0 <= code["freshness"] <= 1.0
+    assert code["timestamp"] > 0
+
+
+def test_s14_freshness_is_deterministic_within_run():
+    s1 = extract_system(".", goal={"name": "refactor", "aspects": ["algorithm"]})
+    s2 = extract_system(".", goal={"name": "refactor", "aspects": ["algorithm"]})
+    f1 = {a["id"]: a.get("freshness") for a in s1["artifacts"] if "freshness" in a}
+    f2 = {a["id"]: a.get("freshness") for a in s2["artifacts"] if "freshness" in a}
+    assert f1 == f2  # granularidad por día -> estable dentro del mismo día

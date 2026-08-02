@@ -787,6 +787,44 @@ def detect_proposition_conflicts(
     return conflicts
 
 
+def propagate_confidence(
+    items: Iterable[Any],
+    resolver: Callable[[str], float | None],
+) -> None:
+    """Propagación de confianza conservativa (readme.md §10).
+
+    Impone ``Conf(b) <= min_{d in Dep(b)} Conf(d)``: una conclusión no puede
+    superar la confianza de su dependencia más débil. Las dependencias se
+    resuelven por id vía ``resolver`` (devuelve la confianza actual del
+    dependency, o None para omitirlo). La iteración por punto fijo cubre cadenas
+    transitivas (una inferencia que descansa en otra inferencia). ``items`` debe
+    ser mutable en ``confidence`` (Belief, Proposition).
+    """
+    materialized = list(items)
+    if not materialized:
+        return
+    for _ in range(len(materialized)):
+        changed = False
+        for item in materialized:
+            deps = getattr(item, "dependencies", ())
+            if not deps:
+                continue
+            bound: float | None = None
+            for dep in deps:
+                value = resolver(dep)
+                if value is None:
+                    continue
+                bound = value if bound is None else min(bound, value)
+            if bound is None:
+                continue
+            clamped = min(float(item.confidence), float(bound))
+            if clamped != float(item.confidence):
+                item.confidence = clamped
+                changed = True
+        if not changed:
+            break
+
+
 def q_g_invariant(evidence: EvidenceStore, beliefs: BeliefStore) -> bool:
     """Traceability invariant (§20): every belief resolves to retained evidence.
 
@@ -894,6 +932,7 @@ def analyze_system(system: dict[str, Any], goal: dict[str, Any], budget: Budget,
     residual_risk = 1.0
     cost_estimated = 0
     cost_observed = 0
+    ev_conf: dict[str, float] = {}
     while budget.has_capacity():
         coverage = compute_coverage(propositions, required_aspects, goal.get("corroboration", CORROBORATION))
         residual_risk = compute_residual_risk(propositions, required_aspects, goal)
@@ -919,12 +958,15 @@ def analyze_system(system: dict[str, Any], goal: dict[str, Any], budget: Budget,
         new_evidence = normalize_evidence(result)
         evidence.add(new_evidence)
         verification = verify_evidence(new_evidence, action.verification_method, system)
+        ev_conf[new_evidence.id] = verification.confidence
         beliefs.update(new_evidence, verification, goal["name"])
         artifact = _resolve_artifact(system, new_evidence.id)
         for prop in derive_propositions(
             new_evidence, verification, artifact, aspect_names, goal["name"], goal, linker
         ):
             propositions.add(prop)
+        propagate_confidence(propositions, lambda d: ev_conf.get(d))
+        propagate_confidence(beliefs, lambda d: ev_conf.get(d))
         conflicts.merge(
             detect_proposition_conflicts(
                 propositions,
