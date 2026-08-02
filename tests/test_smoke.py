@@ -168,10 +168,29 @@ def test_compression_summarizes_when_over_capacity():
         ],
     }
     goal = {"name": "compresion", "aspects": ["x"], "theta_coverage": 2.0, "rho_risk": 0.0}
-    report = analyze_system(system, goal, Budget(tokens_remaining=100000, tool_remaining=1000))
+    report = analyze_system(system, goal, Budget(tokens_remaining=8192, tool_remaining=1000))
     assert report["evidence_count"] == 12
     assert report["compressed_count"] >= 1
     assert report["evidence_kinds"]
+
+
+def test_compression_capacity_is_budget_adaptive():
+    from argos_epistemic import capacity_for_budget
+
+    assert capacity_for_budget(Budget(tokens_remaining=4096, tool_remaining=10)) == 4
+    assert capacity_for_budget(Budget(tokens_remaining=100_000, tool_remaining=10)) >= 90
+    system = {
+        "name": "grande",
+        "artifacts": [
+            {"id": f"f{i}", "content": f"v{i}", "level": 1, "relevance": 1.0, "kind": "k"}
+            for i in range(12)
+        ],
+    }
+    goal = {"name": "g", "aspects": ["x"], "theta_coverage": 2.0, "rho_risk": 0.0}
+    loose = analyze_system(system, goal, Budget(tokens_remaining=100_000, tool_remaining=1000))
+    tight = analyze_system(system, goal, Budget(tokens_remaining=4096, tool_remaining=1000))
+    assert loose["compressed_count"] == 0
+    assert tight["compressed_count"] >= 1
 
 
 def test_extract_system_over_real_repo():

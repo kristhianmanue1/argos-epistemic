@@ -10,6 +10,7 @@ from .algorithm import (
     EvidenceStore,
     Verification,
     analyze_system,
+    capacity_for_budget,
     q_g_invariant,
     run,
 )
@@ -33,6 +34,7 @@ __all__ = [
     "analyze_system",
     "analyze_path",
     "build_call_graph",
+    "capacity_for_budget",
     "dynamic_artifact",
     "extract_system",
     "git_log_summary",

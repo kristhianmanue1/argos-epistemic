@@ -76,7 +76,18 @@ class Evidence:
         self.compressed = True
 
 
-EVIDENCE_CAPACITY = 8
+EVIDENCE_CAPACITY = 4
+EVIDENCE_TOKENS_PER_SLOT = 1024
+
+
+def capacity_for_budget(budget: Budget) -> int:
+    """Adaptive compression capacity (readme.md §6): the store keeps at most
+    ``capacity`` items uncompressed, derived from the remaining token budget.
+    As ``budget.tokens_remaining`` shrinks during a run, capacity shrinks and
+    compression becomes stricter. Floor is ``EVIDENCE_CAPACITY``.
+    """
+    derived = budget.tokens_remaining // EVIDENCE_TOKENS_PER_SLOT
+    return max(EVIDENCE_CAPACITY, int(derived))
 
 
 def _tokens(content: Any) -> frozenset[str]:
@@ -137,7 +148,7 @@ class EvidenceStore:
         return {item.level for item in self._items}
 
     def compress(self, budget: Budget, preserve_provenance: bool, preserve_invariants) -> None:
-        capacity = EVIDENCE_CAPACITY
+        capacity = capacity_for_budget(budget)
         protected = set(preserve_invariants or [])
         uncompressed = [x for x in self._items if not x.compressed]
         if len(uncompressed) <= capacity:
