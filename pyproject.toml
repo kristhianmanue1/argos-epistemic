@@ -60,3 +60,7 @@ check_untyped_defs = true
 # La impl de referencia usa dict[str, Any] para system/goal/artifacts a propósito;
 # no perseguimos Any globalmente.
 disable_error_code = []
+
+[[tool.mypy.overrides]]
+module = ["numpy", "sentence_transformers", "tree_sitter"]
+ignore_missing_imports = true
