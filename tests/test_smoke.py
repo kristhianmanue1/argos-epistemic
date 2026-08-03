@@ -1023,6 +1023,48 @@ def test_default_semantic_uses_dense_when_available_else_lexical():
         assert default_semantic() is lexical_semantic
 
 
+def test_case_study_profiles_are_explicit_and_environment_independent():
+    from argos_epistemic import lexical_semantic
+    from examples.regenerate_case_studies import (
+        SEMANTIC_PROFILES,
+        THIRD_PARTY_CASES,
+        configured_goal,
+    )
+
+    goal = configured_goal({"name": "g", "aspects": []}, "lexical-v1")
+    assert goal["link_threshold"] == 0.10
+    assert goal["aspect_linker"] is lexical_semantic
+    assert set(SEMANTIC_PROFILES) == {"lexical-v1", "char-ngram-v1", "minilm-v1"}
+    assert THIRD_PARTY_CASES["markupsafe"]["independence_class"] == "independent"
+    assert THIRD_PARTY_CASES["an-kla-memory"]["independence_class"] == "operational_dependency"
+
+
+def test_self_study_classifies_generated_documents_as_outputs(tmp_path):
+    from examples.regenerate_case_studies import self_study_output_names
+
+    examples = tmp_path / "examples"
+    examples.mkdir()
+    outputs = {
+        "case-study-x.md",
+        "reporte-tecnico-x.md",
+        "plan-mejoras-x.md",
+        "an-kla-memory-response-to-issue10.md",
+    }
+    for name in outputs | {"design-input.md"}:
+        (examples / name).write_text(name, encoding="utf-8")
+    assert self_study_output_names(tmp_path) == outputs
+
+
+def test_git_identity_uses_full_revision_and_reports_dirty_state():
+    from pathlib import Path
+
+    from examples.regenerate_case_studies import git_identity
+
+    identity = git_identity(Path("."))
+    assert len(identity["revision"]) == 40
+    assert isinstance(identity["dirty"], bool)
+
+
 def test_linker_threshold_mismatch_no_longer_overlinks_noise():
     # Repro del bug del caso an-kla-memory: el surrogate a threshold bajo enlazaba
     # ruido (.gitignore). Con default_link_threshold(embedding)=0.55, el suelo
