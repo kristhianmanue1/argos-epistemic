@@ -132,6 +132,23 @@ def _by_kind(system):
     return dict(Counter(a["kind"] for a in system["artifacts"]))
 
 
+def _inventory_summary(system):
+    inventory = system.get("inventory", {})
+    fields = (
+        "profile",
+        "files_discovered",
+        "files_eligible",
+        "files_selected",
+        "files_omitted_by_cap",
+        "read_truncations",
+        "bytes_discovered",
+        "bytes_read",
+        "degradations",
+        "fingerprint",
+    )
+    return {field: inventory.get(field) for field in fields}
+
+
 def _run(root, goal, extra_ignores=None, normalize_freshness=False):
     linker = goal["aspect_linker"]
     system = extract_system(root, goal=goal, semantic_fn=linker, extra_ignores=extra_ignores)
@@ -220,6 +237,8 @@ def _argos_md(profile: str = "char-ngram-v1") -> str:
         f"levels_covered  : {sorted(report['levels_covered'])}",
         f"aspect_scores   : {report['aspect_scores']}",
         f"cost            : estimated={report['cost']['estimated_tokens']} observed={report['cost']['observed_tokens']}",
+        f"inventory       : {_inventory_summary(system)}",
+        f"completion      : {report.get('completion', {})}",
         "```",
         "",
         "## Interpretación",

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "argos/discovery-inventory-v1",
+  "$comment": "Inventory is computed after ignore rules and before artifact selection",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "canonicalization",
+    "profile",
+    "files_discovered",
+    "files_eligible",
+    "files_selected",
+    "files_ineligible",
+    "files_omitted_by_cap",
+    "read_truncations",
+    "bytes_discovered",
+    "bytes_read",
+    "exclusions",
+    "truncations",
+    "degradations",
+    "fingerprint"
+  ],
+  "properties": {
+    "schema": {"const": "argos/discovery-inventory-v1"},
+    "canonicalization": {"const": "argos/canonical-json-v1"},
+    "profile": {"const": "legacy-first-400-v1"},
+    "files_discovered": {"type": "integer", "minimum": 0},
+    "files_eligible": {"type": "integer", "minimum": 0},
+    "files_selected": {"type": "integer", "minimum": 0},
+    "files_ineligible": {"type": "integer", "minimum": 0},
+    "files_omitted_by_cap": {"type": "integer", "minimum": 0},
+    "read_truncations": {"type": "integer", "minimum": 0},
+    "bytes_discovered": {"type": "integer", "minimum": 0},
+    "bytes_read": {"type": "integer", "minimum": 0},
+    "exclusions": {"type": "array", "items": {"type": "object"}},
+    "truncations": {"type": "array", "items": {"type": "object"}},
+    "degradations": {"type": "array", "items": {"type": "string"}},
+    "fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}

@@ -1097,12 +1097,13 @@ no sustituye la verificación integral del almacén local realizada por AN-KLA.
 
 ## 23.7 Bundle machine-first mínimo
 
-La implementación de referencia expone tres contratos iniciales:
+La implementación de referencia expone cuatro contratos iniciales:
 
 | Schema | Función | Identidad reproducible |
 |---|---|---|
 | `argos/evaluation-manifest-v1` | identidad del objetivo, evaluador, objetivo y configuración | Sí |
 | `argos/evaluation-envelope-v1` | estado compacto y punteros para consumo progresivo | Sí |
+| `argos/discovery-inventory-v1` | universo descubierto, selección y degradaciones | Sí |
 | `argos/run-attestation-v1` | timestamps y uso observado de una ejecución | No; se enlaza al manifest |
 
 El perfil `argos/canonical-json-v1` serializa JSON con claves ordenadas, UTF-8,
@@ -1124,9 +1125,29 @@ y `evaluation_id`; sus attestations tendrán fingerprints distintos.
 
 Los JSON Schema normativos se distribuyen dentro de
 `argos_epistemic.schemas`. La API mínima permite enumerarlos y leerlos sin acceso
-al checkout ni a la red. Esta primera versión no incluye todavía inventario
-completo, claims tipados, recuperación progresiva, MCP, facturación ni firma de
-attestations.
+al checkout ni a la red.
+
+El inventario v1 se calcula después de las reglas de ignore y antes de seleccionar
+artefactos de contenido. Distingue archivos descubiertos, elegibles, seleccionados
+e inelegibles; bytes descubiertos y leídos; exclusiones por cap; y truncados por
+límite de lectura. El perfil vigente `legacy-first-400-v1` conserva el límite
+lexicográfico de 400 artefactos L4/L5 para reproducibilidad, pero ahora cada
+omisión incluye ID, razón y costo aproximado. Los extractores estructurales L3/L4
+pueden inspeccionar el conjunto de archivos descubierto independientemente de la
+selección de artefactos; `files_selected` no afirma que ningún otro extractor haya
+observado metadata o estructura del archivo.
+
+El reporte ejecutable incorpora un bloque `completion` con estado del
+procedimiento, degradaciones bloqueantes, reason codes, razón de terminación y
+próximas acciones estimadas. Esas acciones requieren autorización independiente:
+el resultado nunca amplía por sí mismo el presupuesto o los límites de lectura.
+Un objetivo exploratorio puede declarar `accepted_degradations`; la degradación
+permanece visible, pero deja de bloquear la completitud del procedimiento. Esta
+aceptación forma parte de la configuración del objetivo y no puede inferirse del
+contenido analizado.
+
+Esta versión no incluye todavía selección estratificada, claims tipados,
+recuperación progresiva, MCP, facturación ni firma de attestations.
 ---
 # 24. Conclusión
 La calidad de un agente de análisis de software no debe medirse por:

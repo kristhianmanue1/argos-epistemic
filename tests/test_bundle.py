@@ -138,6 +138,7 @@ def test_run_attestation_does_not_change_reproducible_identity():
 
 def test_normative_schemas_are_loadable():
     expected = {
+        "discovery-inventory-v1.schema.json": "argos/discovery-inventory-v1",
         "evaluation-envelope-v1.schema.json": "argos/evaluation-envelope-v1",
         "evaluation-manifest-v1.schema.json": "argos/evaluation-manifest-v1",
         "run-attestation-v1.schema.json": "argos/run-attestation-v1",

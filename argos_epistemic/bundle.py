@@ -17,8 +17,9 @@ from .canonical import (
 
 MANIFEST_SCHEMA = "argos/evaluation-manifest-v1"
 ENVELOPE_SCHEMA = "argos/evaluation-envelope-v1"
+INVENTORY_SCHEMA = "argos/discovery-inventory-v1"
 RUN_SCHEMA = "argos/run-attestation-v1"
-SUPPORTED_SCHEMAS = frozenset({MANIFEST_SCHEMA, ENVELOPE_SCHEMA, RUN_SCHEMA})
+SUPPORTED_SCHEMAS = frozenset({MANIFEST_SCHEMA, ENVELOPE_SCHEMA, INVENTORY_SCHEMA, RUN_SCHEMA})
 _STATUSES = frozenset({"pending", "running", "partial", "complete", "failed", "cancelled"})
 _INDEPENDENCE_CLASSES = frozenset(
     {"independent", "operational_dependency", "self_study", "shared_authority", "unknown"}
@@ -217,8 +218,33 @@ def verify_run_attestation(attestation: dict[str, Any], manifest: dict[str, Any]
         raise BundleContractError("run attestation fingerprint mismatch")
 
 
+def verify_inventory(inventory: dict[str, Any]) -> None:
+    if inventory.get("schema") != INVENTORY_SCHEMA:
+        raise BundleContractError("unsupported inventory schema")
+    if inventory.get("canonicalization") != CANONICALIZATION_PROFILE:
+        raise BundleContractError("unsupported canonicalization profile")
+    integer_fields = (
+        "files_discovered",
+        "files_eligible",
+        "files_selected",
+        "files_ineligible",
+        "files_omitted_by_cap",
+        "read_truncations",
+        "bytes_discovered",
+        "bytes_read",
+    )
+    if any(not isinstance(inventory.get(field), int) for field in integer_fields):
+        raise BundleContractError("invalid inventory counters")
+    for field in ("exclusions", "truncations", "degradations"):
+        if not isinstance(inventory.get(field), list):
+            raise BundleContractError(f"invalid inventory field: {field}")
+    if not verify_fingerprinted_document(inventory):
+        raise BundleContractError("inventory fingerprint mismatch")
+
+
 def schema_names() -> tuple[str, ...]:
     return (
+        "discovery-inventory-v1.schema.json",
         "evaluation-envelope-v1.schema.json",
         "evaluation-manifest-v1.schema.json",
         "run-attestation-v1.schema.json",
