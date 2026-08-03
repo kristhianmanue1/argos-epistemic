@@ -883,3 +883,71 @@ def test_linker_threshold_mismatch_no_longer_overlinks_noise():
 
     noise = "*.pyc\n__pycache__/\n.env\n"  # un .gitignore típico
     assert embedding_semantic(noise, "memory") < 0.55  # por debajo del threshold -> no enlace
+
+
+def test_production_evidence_gate_blocks_overclaim_on_peripheral_only_support():
+    # Repro del hallazgo click (validacion repos reales): el linker denso enlaza
+    # docs/examples (impact=0) y satura coverage declarando complete=True con
+    # recall 0. El gate exige apoyo productivo (impact>0) cuando hay datos L3.
+    from argos_epistemic.algorithm import production_sources_met, system_has_production
+
+    # Sistema CON datos L3: un artefacto periferico (doc, impact=0) soporta el
+    # aspecto y un artefacto productivo (impact>0) existe pero NO soporta el aspecto.
+    system_with_l3 = {
+        "name": "click_like",
+        "artifacts": [
+            {"id": "doc", "content": "all about commands", "level": 0, "relevance": 0.9,
+             "kind": "doc", "impact": 0.0, "supports": [{"aspect": "command"}]},
+            {"id": "core.py", "content": "def run(): pass", "level": 4, "relevance": 0.5,
+             "kind": "code", "impact": 0.7},
+        ],
+    }
+    goal = {"name": "g", "aspects": ["command"], "theta_coverage": 0.3, "rho_risk": 0.5,
+            "min_sources_per_aspect": 1}
+    assert system_has_production(system_with_l3) is True
+    report = analyze_system(system_with_l3, goal, Budget(tokens_remaining=10000, tool_remaining=20))
+    # coverage (0.5) y min_sources(1) se cumplen, pero complete debe ser False:
+    # el aspecto no descansa sobre evidencia productiva (gate anti-overclaim).
+    assert report["complete"] is False
+
+    # Helper directo: soporte solo periferico -> False; con una proposicion
+    # productiva (impact>0) -> True.
+    from argos_epistemic.algorithm import Proposition, PropositionStore
+
+    store = PropositionStore()
+    store.add(Proposition("command", 1.0, "c", "doc", 0.9, "symbolic", "doc", impact=0.0))
+    assert production_sources_met(store, [{"name": "command"}]) is False
+    store.add(Proposition("command", 1.0, "c2", "core.py", 0.9, "deterministic", "core.py", impact=0.7))
+    assert production_sources_met(store, [{"name": "command"}]) is True
+
+    # Sistema SIN datos L3 (fixtures): el gate es vacuo (fallback al comportamiento previo).
+    system_no_l3 = {
+        "name": "fixture_like",
+        "artifacts": [
+            {"id": "doc", "content": "all about commands", "level": 0, "relevance": 0.9,
+             "kind": "doc", "supports": [{"aspect": "command"}]},
+        ],
+    }
+    assert system_has_production(system_no_l3) is False
+    report2 = analyze_system(system_no_l3, goal, Budget(tokens_remaining=10000, tool_remaining=20))
+    # Sin gate de produccion, coverage puede llevar a complete=True (umbral bajo).
+    assert report2["complete"] is True
+
+
+def test_production_gate_can_be_disabled_via_goal():
+    # El gate es opt-out via goal: util cuando se quiere el comportamiento previo
+    # incluso con datos L3 (p.ej. analisis solo de intencion/docs).
+    system = {
+        "name": "s",
+        "artifacts": [
+            {"id": "doc", "content": "all about commands", "level": 0, "relevance": 0.9,
+             "kind": "doc", "impact": 0.0, "supports": [{"aspect": "command"}]},
+            {"id": "core.py", "content": "def run(): pass", "level": 4, "relevance": 0.5,
+             "kind": "code", "impact": 0.7},
+        ],
+    }
+    goal = {"name": "g", "aspects": ["command"], "theta_coverage": 0.3, "rho_risk": 0.5,
+            "min_sources_per_aspect": 1,
+            "require_production_evidence": False}
+    report = analyze_system(system, goal, Budget(tokens_remaining=10000, tool_remaining=20))
+    assert report["complete"] is True

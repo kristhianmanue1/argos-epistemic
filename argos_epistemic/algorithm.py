@@ -299,6 +299,7 @@ class Proposition:
     dependencies: tuple[str, ...] = ()
     strength: float = 1.0
     position: frozenset[str] = frozenset()
+    impact: float = 0.0
 
 
 class PropositionStore:
@@ -409,6 +410,7 @@ def derive_propositions(
                 dependencies=(evidence.id,),
                 strength=strength,
                 position=_tokens(str(artifact.get("content", ""))) if artifact else frozenset(),
+                impact=float(artifact.get("impact", 0.0) or 0.0) if artifact else 0.0,
             )
         )
     return props
@@ -512,6 +514,44 @@ def min_sources_met(
     return all(len(by_aspect.get(a["name"], set())) >= min_sources for a in aspects)
 
 
+def system_has_production(system: dict[str, Any]) -> bool:
+    """Whether the system carries L3 call-graph data (readme.md §6.1, Impact).
+
+    Production code artifacts expose ``impact > 0`` from the call graph. Fixtures
+    and systems analyzed without a call graph have no such field, so the
+    production-evidence gate (``production_sources_met``) falls back to vacuous
+    True there, preserving prior behavior.
+    """
+    return any(
+        isinstance(a, dict) and float(a.get("impact", 0.0) or 0.0) > 0.0
+        for a in system.get("artifacts", [])
+    )
+
+
+def production_sources_met(
+    propositions: PropositionStore,
+    aspects: list[dict[str, Any]],
+) -> bool:
+    """Every required aspect has >= 1 supporting proposition from production code.
+
+    Anti-overclaim sibling of ``min_sources_met``: it is not enough to amass
+    peripheral evidence (docs, examples, config, typing stubs), because such
+    artifacts talk *about* an aspect without being the implementation (readme.md
+    §4 levels). When L3 data is available, an aspect counts as satisfied for
+    ``complete``/``should_stop`` only if at least one positive proposition rests
+    on a production (``impact > 0``) artifact. This kills the overclaim where the
+    dense linker over-enlaza docs/examples and saturates coverage while recovering
+    none of the implementation gold.
+    """
+    if not aspects:
+        return True
+    by_aspect: dict[str, set[str]] = {}
+    for prop in propositions:
+        if prop.polarity > 0 and prop.impact > 0.0:
+            by_aspect.setdefault(prop.aspect, set()).add(prop.evidence_id)
+    return all(by_aspect.get(a["name"], set()) for a in aspects)
+
+
 def should_stop(
     coverage: float,
     residual_risk: float,
@@ -519,6 +559,7 @@ def should_stop(
     goal: dict[str, Any],
     budget: Budget,
     breadth_ok: bool = True,
+    prod_ok: bool = True,
 ) -> bool:
     theta = goal.get("theta_coverage", budget.theta_coverage)
     rho = goal.get("rho_risk", budget.rho_risk)
@@ -527,6 +568,7 @@ def should_stop(
         and residual_risk <= rho
         and not conflicts.critical()
         and breadth_ok
+        and prod_ok
     )
 
 
@@ -917,7 +959,11 @@ def synthesize_report(
         and residual_risk <= goal.get("rho_risk", budget.rho_risk)
         and not any(p.polarity < 0 for p in propositions)
         and not conflicts.critical()
-        and min_sources_met(propositions, aspects, int(goal.get("min_sources_per_aspect", 2))),
+        and min_sources_met(propositions, aspects, int(goal.get("min_sources_per_aspect", 2)))
+        and (
+            not (goal.get("require_production_evidence", True) and system_has_production(system))
+            or production_sources_met(propositions, aspects)
+        ),
     }
 
 
@@ -931,6 +977,7 @@ def analyze_system(system: dict[str, Any], goal: dict[str, Any], budget: Budget,
     enabled_nf = select_non_functional_extractors(goal)
     linker = goal.get("aspect_linker") or _default_linker
     min_sources = int(goal.get("min_sources_per_aspect", 2))
+    require_production = goal.get("require_production_evidence", True) and system_has_production(system)
     coverage = 0.0
     residual_risk = 1.0
     cost_estimated = 0
@@ -940,7 +987,8 @@ def analyze_system(system: dict[str, Any], goal: dict[str, Any], budget: Budget,
         coverage = compute_coverage(propositions, required_aspects, goal.get("corroboration", CORROBORATION))
         residual_risk = compute_residual_risk(propositions, required_aspects, goal)
         breadth_ok = min_sources_met(propositions, required_aspects, min_sources)
-        if should_stop(coverage, residual_risk, conflicts, goal, budget, breadth_ok):
+        prod_ok = (not require_production) or production_sources_met(propositions, required_aspects)
+        if should_stop(coverage, residual_risk, conflicts, goal, budget, breadth_ok, prod_ok):
             break
         actions = generate_candidate_actions(system, goal, evidence, beliefs, conflicts, enabled_nf)
         eligible = [
