@@ -18,7 +18,9 @@ from pathlib import Path
 from typing import Any
 
 from .behavior import behavior_artifact, behavior_summary, extract_behavior
+from .bundle import INVENTORY_SCHEMA
 from .callgraph import CallGraph, build_multi_call_graph, module_metrics
+from .canonical import CANONICALIZATION_PROFILE, fingerprinted_document
 from .dense_semantic import dense_semantic, dense_semantic_available
 
 DEFAULT_IGNORES = {
@@ -122,11 +124,26 @@ def _rel(root: Path, path: Path) -> str:
         return str(path)
 
 
-def _read(path: Path, limit: int = _READ_LIMIT) -> str:
+def _read(path: Path, limit: int = _READ_LIMIT) -> tuple[str, bool, int]:
     try:
-        return path.read_text(encoding="utf-8", errors="replace")[:limit]
+        with path.open(encoding="utf-8", errors="replace") as handle:
+            observed = handle.read(limit + 1)
     except OSError:
-        return ""
+        return "", False, 0
+    content = observed[:limit]
+    return content, len(observed) > limit, len(content.encode("utf-8"))
+
+
+def _file_level_kind(path: Path, rel: str) -> tuple[int, str] | None:
+    base = path.name.lower()
+    if base in L0_NAMES or (path.suffix == ".md" and base.startswith("readme")):
+        return 0, "doc"
+    if base in L2_NAMES or base.endswith(L2_SUFFIXES):
+        return 2, "config"
+    if path.suffix in L4_SUFFIXES or path.suffix == ".md":
+        is_test = "test" in base or rel.lower().startswith(("tests/", "test/", "spec/"))
+        return (5, "test") if is_test else (4, "doc" if path.suffix == ".md" else "code")
+    return None
 
 
 def _relevance(rel_path: str, goal: dict[str, Any]) -> float:
@@ -321,6 +338,7 @@ def extract_system(
     if extra_ignores:
         ignores |= set(extra_ignores)
     files = _walk(root, ignores)
+    discovered_bytes = sum(path.stat().st_size for path in files)
     cg = build_multi_call_graph(root, files)
     metrics = module_metrics(cg)
     behaviors = extract_behavior(root, files)
@@ -341,27 +359,70 @@ def extract_system(
     artifacts.append(_callgraph_artifact(cg, now))
     artifacts.append(behavior_artifact(behaviors, now))
     code_seen = 0
+    files_eligible = 0
+    files_selected = 0
+    bytes_read = 0
+    exclusions: list[dict[str, Any]] = []
+    truncations: list[dict[str, Any]] = []
     for path in files:
         rel = _rel(root, path)
-        base = path.name.lower()
-        content = _read(path)
-        if base in L0_NAMES or (path.suffix == ".md" and base.startswith("readme")):
-            artifacts.append(_file_artifact(rel, path, content, 0, "doc", goal, metrics, sim, now))
-        elif base in L2_NAMES or path.name.lower().endswith(L2_SUFFIXES):
-            artifacts.append(_file_artifact(rel, path, content, 2, "config", goal, metrics, sim, now))
-        elif path.suffix in L4_SUFFIXES or path.suffix == ".md":
+        classification = _file_level_kind(path, rel)
+        if classification is None:
+            continue
+        files_eligible += 1
+        level, kind = classification
+        if level in (4, 5):
             if code_seen >= MAX_CODE_ARTIFACTS:
+                exclusions.append(
+                    {
+                        "id": rel,
+                        "reason": "artifact_cap",
+                        "estimated_bytes": min(path.stat().st_size, _READ_LIMIT),
+                    }
+                )
                 continue
             code_seen += 1
-            is_test = "test" in base or rel.lower().startswith(("tests/", "test/", "spec/"))
-            kind = "test" if is_test else ("doc" if path.suffix == ".md" else "code")
-            level = 5 if is_test else 4
-            artifact = _file_artifact(rel, path, content, level, kind, goal, metrics, sim, now)
+        content, content_truncated, observed_bytes = _read(path)
+        bytes_read += observed_bytes
+        files_selected += 1
+        artifact = _file_artifact(rel, path, content, level, kind, goal, metrics, sim, now)
+        artifact["content_truncated"] = content_truncated
+        artifact["observed_bytes"] = observed_bytes
+        if content_truncated:
+            truncations.append({"id": rel, "reason": "read_limit", "observed_bytes": observed_bytes})
+        if level in (4, 5):
             nf = _non_functional(rel)
             if nf:
                 artifact["nf"] = nf
-            artifacts.append(artifact)
-    return {"name": root.name, "artifacts": artifacts, "call_graph": _callgraph_summary(cg), "behavior": behavior_summary(behaviors)}
+        artifacts.append(artifact)
+    degradations: list[str] = []
+    if exclusions:
+        degradations.append("artifact_cap_reached")
+    if truncations:
+        degradations.append("content_truncated")
+    inventory = fingerprinted_document({
+        "schema": INVENTORY_SCHEMA,
+        "canonicalization": CANONICALIZATION_PROFILE,
+        "profile": "legacy-first-400-v1",
+        "files_discovered": len(files),
+        "files_eligible": files_eligible,
+        "files_selected": files_selected,
+        "files_ineligible": len(files) - files_eligible,
+        "files_omitted_by_cap": len(exclusions),
+        "read_truncations": len(truncations),
+        "bytes_discovered": discovered_bytes,
+        "bytes_read": bytes_read,
+        "exclusions": exclusions,
+        "truncations": truncations,
+        "degradations": degradations,
+    })
+    return {
+        "name": root.name,
+        "artifacts": artifacts,
+        "call_graph": _callgraph_summary(cg),
+        "behavior": behavior_summary(behaviors),
+        "inventory": inventory,
+    }
 
 
 def _callgraph_artifact(cg: CallGraph, now: float = 0.0) -> dict[str, Any]:

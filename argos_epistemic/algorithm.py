@@ -914,7 +914,8 @@ def synthesize_report(
     coverage: float,
     residual_risk: float,
     budget: Budget,
-    cost: dict[str, int] | None = None,
+    cost: dict[str, Any] | None = None,
+    termination_reason: str = "unknown",
 ) -> dict[str, Any]:
     by_aspect: dict[str, list[Proposition]] = {}
     for prop in propositions:
@@ -924,6 +925,79 @@ def synthesize_report(
         a["name"]: round(aspect_score(by_aspect.get(a["name"], []), corroboration), 4)
         for a in aspects
     }
+    thresholds_met = (
+        coverage >= goal.get("theta_coverage", budget.theta_coverage)
+        and residual_risk <= goal.get("rho_risk", budget.rho_risk)
+    )
+    no_negative = not any(p.polarity < 0 for p in propositions)
+    no_critical_conflicts = not conflicts.critical()
+    sources_met = min_sources_met(
+        propositions, aspects, int(goal.get("min_sources_per_aspect", 2))
+    )
+    production_met = (
+        not (goal.get("require_production_evidence", True) and system_has_production(system))
+        or production_sources_met(propositions, aspects)
+    )
+    inventory = system.get("inventory") or {}
+    degradations = list(inventory.get("degradations", []))
+    accepted_degradations = set(goal.get("accepted_degradations", []))
+    blocking_degradations = [
+        degradation
+        for degradation in degradations
+        if degradation in {"artifact_cap_reached", "content_truncated"}
+        and degradation not in accepted_degradations
+    ]
+    complete = (
+        thresholds_met
+        and no_negative
+        and no_critical_conflicts
+        and sources_met
+        and production_met
+        and not blocking_degradations
+    )
+    reason_codes: list[str] = []
+    if not thresholds_met:
+        reason_codes.append("threshold_not_met")
+    if not no_negative:
+        reason_codes.append("negative_proposition")
+    if not no_critical_conflicts:
+        reason_codes.append("blocking_conflict")
+    if not sources_met:
+        reason_codes.append("insufficient_sources")
+    if not production_met:
+        reason_codes.append("missing_production_evidence")
+    reason_codes.extend(blocking_degradations)
+    if termination_reason not in {"thresholds_met", "unknown"}:
+        reason_codes.append(termination_reason)
+    reason_codes = list(dict.fromkeys(reason_codes))
+    next_actions: list[dict[str, Any]] = []
+    if "artifact_cap_reached" in reason_codes:
+        excluded = inventory.get("exclusions", [])
+        next_actions.append(
+            {
+                "action": "increase_artifact_cap",
+                "reason": "artifact_cap_reached",
+                "estimated_tokens": sum(int(item.get("estimated_bytes", 0)) for item in excluded)
+                // 4,
+                "authorization_required": True,
+            }
+        )
+    if "content_truncated" in reason_codes:
+        next_actions.append(
+            {
+                "action": "increase_read_limit",
+                "reason": "content_truncated",
+                "authorization_required": True,
+            }
+        )
+    if termination_reason in {"budget_exhausted", "no_affordable_actions"}:
+        next_actions.append(
+            {
+                "action": "increase_budget",
+                "reason": termination_reason,
+                "authorization_required": True,
+            }
+        )
     return {
         "system": system.get("name"),
         "goal": goal.get("name"),
@@ -952,6 +1026,16 @@ def synthesize_report(
             "tool": budget.tool_remaining,
         },
         "cost": cost or {"estimated_tokens": 0, "observed_tokens": 0},
+        "inventory": inventory,
+        "completion": {
+            "procedure_complete": complete,
+            "thresholds_met": thresholds_met,
+            "degradations": degradations,
+            "blocking_degradations": blocking_degradations,
+            "reason_codes": reason_codes,
+            "termination_reason": termination_reason,
+            "next_actions": next_actions,
+        },
         "levels_covered": sorted(evidence.levels()),
         "conclusions": [
             {
@@ -968,15 +1052,7 @@ def synthesize_report(
             }
             for p in propositions
         ],
-        "complete": coverage >= goal.get("theta_coverage", budget.theta_coverage)
-        and residual_risk <= goal.get("rho_risk", budget.rho_risk)
-        and not any(p.polarity < 0 for p in propositions)
-        and not conflicts.critical()
-        and min_sources_met(propositions, aspects, int(goal.get("min_sources_per_aspect", 2)))
-        and (
-            not (goal.get("require_production_evidence", True) and system_has_production(system))
-            or production_sources_met(propositions, aspects)
-        ),
+        "complete": complete,
     }
 
 
@@ -995,6 +1071,7 @@ def analyze_system(system: dict[str, Any], goal: dict[str, Any], budget: Budget,
     residual_risk = 1.0
     cost_estimated = 0
     cost_observed = 0
+    termination_reason = "unknown"
     ev_conf: dict[str, float] = {}
     while budget.has_capacity():
         coverage = compute_coverage(propositions, required_aspects, goal.get("corroboration", CORROBORATION))
@@ -1002,6 +1079,7 @@ def analyze_system(system: dict[str, Any], goal: dict[str, Any], budget: Budget,
         breadth_ok = min_sources_met(propositions, required_aspects, min_sources)
         prod_ok = (not require_production) or production_sources_met(propositions, required_aspects)
         if should_stop(coverage, residual_risk, conflicts, goal, budget, breadth_ok, prod_ok):
+            termination_reason = "thresholds_met"
             break
         actions = generate_candidate_actions(system, goal, evidence, beliefs, conflicts, enabled_nf)
         eligible = [
@@ -1010,6 +1088,14 @@ def analyze_system(system: dict[str, Any], goal: dict[str, Any], budget: Budget,
             if prerequisites_satisfied(action, evidence, beliefs) and budget.can_afford(action.estimated_cost)
         ]
         if not eligible:
+            prerequisites_met = [
+                action
+                for action in actions
+                if prerequisites_satisfied(action, evidence, beliefs)
+            ]
+            termination_reason = (
+                "no_affordable_actions" if prerequisites_met else "no_eligible_actions"
+            )
             break
         action = max(
             eligible,
@@ -1043,11 +1129,34 @@ def analyze_system(system: dict[str, Any], goal: dict[str, Any], budget: Budget,
             protected_ids.update(conflict.evidence_for)
             protected_ids.update(conflict.evidence_against)
         evidence.compress(budget, preserve_provenance=True, preserve_invariants=protected_ids)
+    if not budget.has_capacity():
+        termination_reason = "budget_exhausted"
     coverage = compute_coverage(propositions, required_aspects, goal.get("corroboration", CORROBORATION))
     residual_risk = compute_residual_risk(propositions, required_aspects, goal)
     return synthesize_report(
         system, goal, evidence, beliefs, propositions, conflicts, required_aspects,
-        coverage, residual_risk, budget, {"estimated_tokens": cost_estimated, "observed_tokens": cost_observed},
+        coverage,
+        residual_risk,
+        budget,
+        {
+            "estimated_tokens": cost_estimated,
+            "observed_tokens": cost_observed,
+            "phases": {
+                "discovery": {
+                    "files": int((system.get("inventory") or {}).get("files_discovered", 0)),
+                    "bytes": int((system.get("inventory") or {}).get("bytes_discovered", 0)),
+                },
+                "extraction": {
+                    "files": int((system.get("inventory") or {}).get("files_selected", 0)),
+                    "bytes": int((system.get("inventory") or {}).get("bytes_read", 0)),
+                },
+                "analysis": {
+                    "estimated_tokens": cost_estimated,
+                    "observed_tokens": cost_observed,
+                },
+            },
+        },
+        termination_reason,
     )
 
 
