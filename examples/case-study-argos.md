@@ -14,14 +14,14 @@ Tests en verde: **62**. Objetivo `G=refactorizacion`, aspectos `['algorithm', 'c
 
 ```text
 evidence_count  : 34
-proposition_count: 17
+proposition_count: 16
 conflict_count  : 2
 coverage        : 0.4583
 residual_risk   : 0.175
 complete        : False
 levels_covered  : [0, 1, 2, 3, 4, 5]
 aspect_scores   : {'algorithm': 0.6667, 'config': 1.0, 'test': 0.1667, 'doc': 0.0}
-cost            : estimated=36810 observed=36810
+cost            : estimated=37214 observed=37214
 ```
 
 ## Interpretación
@@ -34,4 +34,4 @@ El bucle presupuestado selecciona evidencia por utilidad (valor/costo) y detiene
 - **`S_semantic` surrogate**: se usa el embedding léxico (char-n-gramas), no denso; sesión del LLM/transformers queda pendiente.
 - **Discovery no presupuestado**: la lectura de archivos y el índice L3 se pagan antes del bucle (el grafo alimenta `R` para la selección); sólo el contenido por-objetivo y los extractores subprocess son perezosos.
 
-_Generado desde HEAD del pipeline. raw report: `{"evidence_count": 34, "proposition_count": 17, "coverage": 0.4583, "residual_risk": 0.175, "complete": false}`_
+_Generado desde HEAD del pipeline. raw report: `{"evidence_count": 34, "proposition_count": 16, "coverage": 0.4583, "residual_risk": 0.175, "complete": false}`_

@@ -8,9 +8,18 @@ en ``bench/real_repos.py``). Cada aspecto mezcla intencionalmente:
 * entradas semanticas (sin overlap lexico, p.ej. ``injection``/``errors``) que
   aislan la senal densa: el lexico debe fallar y el denso recuperar.
 
-ADVERTENCIA de honestidad: es etiquetado por una persona (el agente) sobre 3
-repos; no es un corpus con annotation多重, ni ciego. Sirve para pasar de
-micro-fixture a codigo real, pero NO es validacion estadistica amplia.
+ADVERTENCIA DE VALIDEZ (leer antes de interpretar el Brier): es etiquetado por
+UN solo anotador (el agente), sobre 3 repos, no ciego, con definicion "canonica"
+estrecha (el fichero que PRINCIPALMENTE implementa el aspecto). Esto ACOTA EL
+BRIER HACIA ARRIBA: ficheros legitima y relevantemente vinculados pero no
+"canonicos" cuentan como falsos positivos. Verificado en click: ``utils.py``
+(impact 0.42, importado por todo el paquete) y ``shell_completion.py`` (trata de
+comandos, impact 0.43) los enlaza el linker con razon, pero el gold los marca
+como no-gold -> inflan el Brier (~0.40) sin que el modelo "falle". Por tanto el
+Brier medido es un TECHO que mezcla defecto del modelo y estrechez del gold; no
+es una medida limpia de calibracion hasta tener multi-annotator y/o un gold
+"relevante" (no solo canonico). Lo barato y correcto ahora: registrar este
+caveat y dejar la validacion multi-annotator (C1) como follow-up.
 """
 
 from __future__ import annotations

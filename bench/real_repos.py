@@ -195,6 +195,20 @@ def run(dense: bool) -> tuple[str, dict]:
         "  semanticos (sin overlap lexico) para aislar la senal densa.",
         "- Sigue siendo N=3 repos; validacion estadistica amplia queda pendiente.",
         "",
+        "## Validez del gold y lectura del Brier (importante)",
+        "- El Brier ~0.40 **no es una medida limpia de calibracion**: el gold es",
+        "  single-annotator y 'canonico' (estrecho). Ficheros relevantes pero no",
+        "  canonicos cuentan como falsos positivos. Verificado en click: `utils.py`",
+        "  (impact 0.42, importado por todo) y `shell_completion.py` (trata de",
+        "  comandos, impact 0.43) los enlaza el linker con razon, pero el gold los",
+        "  excluye -> inflan el Brier sin que el modelo 'falle'.",
+        "- El Brier medido es un **techo** que mezcla defecto del modelo y estrechez",
+        "  del gold. Desambiguarlo requiere multi-annotator y/o un gold 'relevante'",
+        "  (no solo canonico) -> follow-up C1, fuera del alcance de este reporte.",
+        "- El gate de evidencia productiva (item 2) ya impide la sobreafirmacion",
+        "  (`complete=False` sin apoyo productivo real); la propiedad epistemicamente",
+        "  critica (no sobreclaimar) se cumple independientemente del Brier.",
+        "",
     ]
     return "\n".join(lines), commits
 
