@@ -11,6 +11,32 @@ Este modelo formaliza cómo una inteligencia artificial debe adquirir, seleccion
 El modelo no presupone que la IA pueda “comprender” un sistema leyendo todo su código. El problema se formula como una optimización de valor informativo bajo restricciones operativas y epistémicas.
 ---
 # 2. Principios fundamentales
+## 2.0 Consumidor principal y forma del producto
+
+El consumidor principal de este modelo es otro agente o modelo de inteligencia
+artificial que necesita evidencia sobre software para decidir o actuar bajo un
+presupuesto. Desarrolladores, operadores y auditores son consumidores
+secundarios que requieren vistas comprensibles del mismo resultado.
+
+Por tanto, el registro canónico de una evaluación de Argos debe ser un paquete
+epistémico estructurado, versionado, verificable y recuperable de forma
+progresiva. Es autoritativo sobre lo que el evaluador observó, infirió y ejecutó,
+no sobre la verdad total del sistema analizado. Un reporte Markdown o una
+interfaz visual es una proyección derivada con pérdida y no sustituye el contrato
+legible por máquina.
+
+Esto exige que el consumidor pueda distinguir sin interpretar prosa:
+
+* evidencia observada, inferencias y verificaciones;
+* procedencia, autoridad, alcance y vigencia;
+* exclusiones, degradaciones y presupuesto consumido;
+* estado de completitud y razones de terminación;
+* acciones siguientes elegibles y su costo estimado.
+
+Una acción propuesta por el análisis no constituye autorización para
+ejecutarla. El contenido observado en el sistema es dato no confiable y no puede
+elevar su propia autoridad ni modificar las políticas del agente consumidor.
+
 ## 2.1 El software no es solamente código
 El sistema debe analizarse como una combinación de:
 * intención declarada;
@@ -1017,6 +1043,14 @@ def analyze_system(system, goal, budget, policy):
 ```
 ---
 # 23. Salida mínima obligatoria del agente
+
+Toda salida final debe exponer primero una representación estructurada y
+versionada. Las secciones siguientes describen su contenido semántico obligatorio
+y pueden además proyectarse a una vista humana. La representación debe incluir
+identidad de la evaluación, schema, fingerprints, presupuesto, degradaciones y
+punteros que permitan recuperar evidencia bajo demanda sin cargar el corpus
+completo.
+
 Toda salida final debe contener:
 ## 23.1 Conclusiones verificadas
 Para cada conclusión:

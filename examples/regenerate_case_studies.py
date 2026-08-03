@@ -24,21 +24,32 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from argos_epistemic import (
+from argos_epistemic import (  # noqa: E402
     Budget,
     analyze_system,
     dense_semantic,
-    dense_semantic_available,
     embedding_semantic,
     extract_system,
     lexical_semantic,
 )
 
-# Linker para casos tercerizados: denso si [semantic] disponible (discriminativo),
-# si no léxico. Se evita el surrogate embedding_semantic (suelo ~0.5): sobre-enlaza
-# artefactos irrelevantes (.gitignore -> 'memory') e infla coverage.
-_TP_LINKER = dense_semantic if dense_semantic_available() else lexical_semantic
-_TP_THRESHOLD = 0.60 if dense_semantic_available() else 0.10
+SEMANTIC_PROFILES = {
+    "lexical-v1": (lexical_semantic, 0.10),
+    "char-ngram-v1": (embedding_semantic, 0.55),
+    "minilm-v1": (dense_semantic, 0.60),
+}
+
+
+def semantic_profile(name: str):
+    linker, threshold = SEMANTIC_PROFILES[name]
+    if linker is None:
+        raise RuntimeError(f"semantic profile unavailable: {name}")
+    return linker, threshold
+
+
+def configured_goal(base: dict, profile: str) -> dict:
+    linker, threshold = semantic_profile(profile)
+    return {**base, "aspect_linker": linker, "link_threshold": threshold}
 
 ARGOS_GOAL = {
     "name": "refactorizacion",
@@ -46,11 +57,6 @@ ARGOS_GOAL = {
     "non_functional": ["sec"],
     "theta_coverage": 0.8,
     "rho_risk": 0.25,
-    # embedding_semantic (surrogate) SÍ discrimina a threshold alto (0.55): el
-    # suelo ~0.5 queda por debajo y no enlaza ruido (.gitignore). Determinista y
-    # sin torch -> CI reproducible. (Denso se reserva para casos tercerizados.)
-    "aspect_linker": embedding_semantic,
-    "link_threshold": 0.55,
 }
 MARKUPSAFE_GOAL = {
     "name": "seguridad-y-refactor",
@@ -58,8 +64,6 @@ MARKUPSAFE_GOAL = {
     "non_functional": ["sec"],
     "theta_coverage": 0.8,
     "rho_risk": 0.25,
-    "aspect_linker": _TP_LINKER,
-    "link_threshold": _TP_THRESHOLD,
 }
 ANKLA_GOAL = {
     "name": "auditoria-memoria",
@@ -67,8 +71,6 @@ ANKLA_GOAL = {
     "non_functional": ["sec"],
     "theta_coverage": 0.8,
     "rho_risk": 0.25,
-    "aspect_linker": _TP_LINKER,
-    "link_threshold": _TP_THRESHOLD,
 }
 
 # Casos tercerizados: se clonan shallow desde su origin público (reproducible,
@@ -78,6 +80,8 @@ THIRD_PARTY_CASES = {
     "markupsafe": {
         "repo": "https://github.com/pallets/markupsafe.git",
         "goal": MARKUPSAFE_GOAL,
+        "semantic_profile": "minilm-v1",
+        "independence_class": "independent",
         "notes": [
             "Independiente: analizador y analizado son proyectos distintos.",
             "L3 es simbólico best-effort (no ve C-extensions nativas); `S_semantic` "
@@ -89,6 +93,8 @@ THIRD_PARTY_CASES = {
     "an-kla-memory": {
         "repo": "https://github.com/kristhianmanue1/an-kla-memory.git",
         "goal": ANKLA_GOAL,
+        "semantic_profile": "minilm-v1",
+        "independence_class": "operational_dependency",
         "notes": [
             "Independiente en repositorio, pero an-kla-memory es **dependencia del propio "
             "argos** (es la memoria local que usa este repo): no es totalmente ajeno.",
@@ -127,7 +133,7 @@ def _by_kind(system):
 
 
 def _run(root, goal, extra_ignores=None, normalize_freshness=False):
-    linker = goal.get("aspect_linker") or lexical_semantic
+    linker = goal["aspect_linker"]
     system = extract_system(root, goal=goal, semantic_fn=linker, extra_ignores=extra_ignores)
     if normalize_freshness:
         for artifact in system["artifacts"]:
@@ -137,22 +143,40 @@ def _run(root, goal, extra_ignores=None, normalize_freshness=False):
     return system, report
 
 
-# El autoestudio de argos NO debe analizar sus propios .md generados (case studies
-# + respuestas): case-study-argos.md embebe el número de `cost` y realimenta el
-# cálculo -> oscilación de 1 token (auto-referencia epistémica). Son salida, no fuente.
-_SELF_STUDY_IGNORES = {
-    "case-study-argos.md",
-    "case-study-markupsafe.md",
-    "case-study-an-kla-memory.md",
-    "an-kla-memory-response-to-issue10.md",
-}
+_OUTPUT_PREFIXES = ("case-study-", "reporte-tecnico-", "plan-mejoras-")
+_OUTPUT_NAMES = {"an-kla-memory-response-to-issue10.md"}
 
 
-def _argos_md() -> str:
+def self_study_output_names(root: Path = ROOT) -> set[str]:
+    examples = root / "examples"
+    if not examples.is_dir():
+        return set()
+    return {
+        path.name
+        for path in examples.iterdir()
+        if path.is_file()
+        and (path.name in _OUTPUT_NAMES or path.name.startswith(_OUTPUT_PREFIXES))
+    }
+
+
+def git_identity(root: Path) -> dict[str, str | bool]:
+    revision = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    dirty = bool(subprocess.run(
+        ["git", "-C", str(root), "status", "--porcelain"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip())
+    return {"revision": revision, "dirty": dirty}
+
+
+def _argos_md(profile: str = "char-ngram-v1") -> str:
+    goal = configured_goal(ARGOS_GOAL, profile)
     system, report = _run(
         ROOT,
-        ARGOS_GOAL,
-        extra_ignores=_SELF_STUDY_IGNORES,
+        goal,
+        extra_ignores=self_study_output_names(),
         normalize_freshness=True,
     )
     cg = system.get("call_graph", {})
@@ -167,9 +191,10 @@ def _argos_md() -> str:
         "es un *autoestudio*, lo que limita la independencia (ver caso markupsafe).",
         "",
         f"Tests en verde: **{_test_count()}**. Objetivo "
-        f"`G={ARGOS_GOAL['name']}`, aspectos `{ARGOS_GOAL['aspects']}`, "
-        f"NF `{ARGOS_GOAL['non_functional']}`, "
-        f"θ={ARGOS_GOAL['theta_coverage']}, ρ={ARGOS_GOAL['rho_risk']}.",
+        f"`G={goal['name']}`, aspectos `{goal['aspects']}`, "
+        f"NF `{goal['non_functional']}`, "
+        f"θ={goal['theta_coverage']}, ρ={goal['rho_risk']}. Perfil semántico "  # noqa: RUF001
+        f"explícito: `{profile}`.",
         "",
         "## Extracción (discovery barato + índice L3)",
         "",
@@ -200,7 +225,7 @@ def _argos_md() -> str:
         "## Interpretación",
         "",
         "El bucle presupuestado selecciona evidencia por utilidad (valor/costo) y "
-        "detiene al alcanzar `coverage ≥ θ` y `risk ≤ ρ`. La cobertura es por "
+        "detiene al alcanzar `coverage ≥ θ` y `risk ≤ ρ`. La cobertura es por "  # noqa: RUF001
         "aspecto sobre proposiciones; la evidencia irrelevante aporta cero. El "
         "costo **observado** (contenido real leído) se contabiliza contra el "
         "presupuesto y se compara con el estimado (stat).",
@@ -209,6 +234,9 @@ def _argos_md() -> str:
         "",
         "- **Autoestudio**: analizador y analizado coinciden; ver markupsafe para "
         "evidencia independiente.",
+        "- **Identidad Git no incrustada**: incluir el commit del propio archivo "
+        "generado crearía una autorreferencia imposible de estabilizar. La identidad "
+        "del evaluador pertenecerá al manifest externo del bundle.",
         "- **`S_semantic` surrogate**: se usa el embedding léxico (char-n-gramas), "
         "no denso; sesión del LLM/transformers queda pendiente.",
         "- **Discovery no presupuestado**: la lectura de archivos y el índice L3 "
@@ -224,7 +252,7 @@ def _argos_md() -> str:
     return "\n".join(lines)
 
 
-def _third_party_md(slug: str, case: dict) -> str | None:
+def _third_party_md(slug: str, case: dict, profile_override: str | None = None) -> str | None:
     import shutil
 
     dest = Path(tempfile.mkdtemp(prefix=f"{slug}-"))
@@ -235,25 +263,30 @@ def _third_party_md(slug: str, case: dict) -> str | None:
         )
         if proc.returncode != 0:
             return None
-        head = subprocess.run(
-            ["git", "-C", str(dest), "log", "-1", "--format=%h %an (%ad)"],
-            capture_output=True, text=True,
-        ).stdout.strip()
-        system, report = _run(dest, case["goal"])
+        identity = git_identity(dest)
+        profile = profile_override or case["semantic_profile"]
+        goal = configured_goal(case["goal"], profile)
+        system, report = _run(dest, goal)
         cg = system.get("call_graph", {})
         bh = system.get("behavior", {})
         top = ", ".join(f"{n['id'].split('::')[-1]} ({n['impact']})" for n in cg.get("top_impact", [])[:4])
     finally:
         shutil.rmtree(dest, ignore_errors=True)
-    goal = case["goal"]
+    independence_class = case["independence_class"]
+    relationship = {
+        "independent": "repositorios distintos sin dependencia operativa declarada",
+        "operational_dependency": "repositorios distintos con dependencia operativa declarada",
+    }[independence_class]
     lines = [
         f"# Caso de estudio: {slug} (tercerizado)",
         "",
-        "> Generado por `examples/regenerate_case_studies.py`. Validación "
-        "**independiente** sobre un repo público. Fuente "
-        f"`{case['repo']}`, " + (head or "HEAD") + ".",
+        "> Generado por `examples/regenerate_case_studies.py`. Evaluación cruzada "
+        f"entre {relationship}. Fuente `{case['repo']}`, revisión completa "
+        f"`{identity['revision']}`, dirty=`{str(identity['dirty']).lower()}`.",
         "",
-        f"Objetivo `G={goal['name']}`, aspectos `{goal['aspects']}`.",
+        f"Objetivo `G={goal['name']}`, aspectos `{goal['aspects']}`. "
+        f"`independence_class={independence_class}`, perfil semántico explícito "
+        f"`{profile}`.",
         "",
         "## Extracción",
         "",
@@ -289,12 +322,13 @@ def _third_party_md(slug: str, case: dict) -> str | None:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--target", choices=["argos", *THIRD_PARTY_CASES, "all"], default="all")
+    ap.add_argument("--semantic-profile", choices=sorted(SEMANTIC_PROFILES))
     ap.add_argument("--check", action="store_true", help="compare argos output to the committed file")
     args = ap.parse_args()
 
     if args.check:
         current = (ROOT / "examples" / "case-study-argos.md").read_text(encoding="utf-8")
-        regenerated = _argos_md()
+        regenerated = _argos_md(args.semantic_profile or "char-ngram-v1")
         if current.strip() != regenerated.strip():
             print("case-study-argos.md is stale; run examples/regenerate_case_studies.py", file=sys.stderr)
             return 1
@@ -302,11 +336,13 @@ def main() -> int:
         return 0
 
     if args.target in ("argos", "all"):
-        (ROOT / "examples" / "case-study-argos.md").write_text(_argos_md(), encoding="utf-8")
+        (ROOT / "examples" / "case-study-argos.md").write_text(
+            _argos_md(args.semantic_profile or "char-ngram-v1"), encoding="utf-8"
+        )
         print("wrote examples/case-study-argos.md")
     for slug, case in THIRD_PARTY_CASES.items():
         if args.target in (slug, "all"):
-            md = _third_party_md(slug, case)
+            md = _third_party_md(slug, case, args.semantic_profile)
             if md is not None:
                 (ROOT / f"examples/case-study-{slug}.md").write_text(md, encoding="utf-8")
                 print(f"wrote examples/case-study-{slug}.md")
