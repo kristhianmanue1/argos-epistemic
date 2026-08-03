@@ -126,9 +126,13 @@ def _by_kind(system):
     return dict(Counter(a["kind"] for a in system["artifacts"]))
 
 
-def _run(root, goal, extra_ignores=None):
+def _run(root, goal, extra_ignores=None, normalize_freshness=False):
     linker = goal.get("aspect_linker") or lexical_semantic
     system = extract_system(root, goal=goal, semantic_fn=linker, extra_ignores=extra_ignores)
+    if normalize_freshness:
+        for artifact in system["artifacts"]:
+            artifact["freshness"] = 1.0
+            artifact["timestamp"] = 0
     report = analyze_system(system, goal, Budget(tokens_remaining=200000, tool_remaining=2000))
     return system, report
 
@@ -145,7 +149,12 @@ _SELF_STUDY_IGNORES = {
 
 
 def _argos_md() -> str:
-    system, report = _run(ROOT, ARGOS_GOAL, extra_ignores=_SELF_STUDY_IGNORES)
+    system, report = _run(
+        ROOT,
+        ARGOS_GOAL,
+        extra_ignores=_SELF_STUDY_IGNORES,
+        normalize_freshness=True,
+    )
     cg = system.get("call_graph", {})
     bh = system.get("behavior", {})
     top = ", ".join(f"{n['id'].split('::')[-1]} ({n['impact']})" for n in cg.get("top_impact", [])[:4])
@@ -205,6 +214,9 @@ def _argos_md() -> str:
         "- **Discovery no presupuestado**: la lectura de archivos y el índice L3 "
         "se pagan antes del bucle (el grafo alimenta `R` para la selección); sólo "
         "el contenido por-objetivo y los extractores subprocess son perezosos.",
+        "- **Frescura normalizada**: este artefacto fija `freshness=1.0` y "
+        "`timestamp=0` para no depender del `mtime` asignado por cada checkout; "
+        "el pipeline normal conserva y evalúa los timestamps reales.",
         "",
         f"_Generado desde HEAD del pipeline. raw report: `{raw}`_",
         "",

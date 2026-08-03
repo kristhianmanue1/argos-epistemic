@@ -33,5 +33,6 @@ El bucle presupuestado selecciona evidencia por utilidad (valor/costo) y detiene
 - **Autoestudio**: analizador y analizado coinciden; ver markupsafe para evidencia independiente.
 - **`S_semantic` surrogate**: se usa el embedding léxico (char-n-gramas), no denso; sesión del LLM/transformers queda pendiente.
 - **Discovery no presupuestado**: la lectura de archivos y el índice L3 se pagan antes del bucle (el grafo alimenta `R` para la selección); sólo el contenido por-objetivo y los extractores subprocess son perezosos.
+- **Frescura normalizada**: este artefacto fija `freshness=1.0` y `timestamp=0` para no depender del `mtime` asignado por cada checkout; el pipeline normal conserva y evalúa los timestamps reales.
 
 _Generado desde HEAD del pipeline. raw report: `{"evidence_count": 35, "proposition_count": 18, "coverage": 0.625, "residual_risk": 0.0, "complete": false}`_
