@@ -1,1 +1,1 @@
-an-kla-memory==0.1.0b1
+an-kla-memory @ git+https://github.com/kristhianmanue1/an-kla-memory.git@67f6ee486a4235e43ca16d8f701eb8722aaad68a
