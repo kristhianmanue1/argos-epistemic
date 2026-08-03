@@ -5,6 +5,9 @@ es evidencia runtime de que funciones consumen mas tiempo. Es de solo lectura y
 barato; lee ficheros ``*.prof`` con ``pstats`` (formato estandar de CPython).
 Verificacion **historica** (§9.1): confianza 0.8 cuando hay contenido.
 
+Combina las métricas de hasta cinco perfiles válidos, seleccionados en orden de
+ruta, y devuelve los hotpaths globales por tiempo acumulado descendente.
+
 Best-effort: ``pstats`` puede fallar si el volcado es de otra version/platforma;
 en ese caso se devuelve None (sin trazar). No ejecuta codigo del sistema.
 """
@@ -13,7 +16,7 @@ from __future__ import annotations
 
 import pstats
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 _PROF_SUFFIX = ".prof"
 _MAX_FILES = 5
@@ -40,13 +43,22 @@ def profile_summary(root: Path | str) -> dict[str, Any] | None:
             break
     if not collected:
         return None
-    rel, stats = collected[0]
+    profiles = [rel for rel, _stats in collected]
+    stats = collected[0][1]
+    for _rel, other in collected[1:]:
+        stats.add(other)
     total = getattr(stats, "total_tt", None)
     entries: list[dict[str, Any]] = []
     try:
-        # sort by cumulative time; capture top hotpaths
         stats.sort_stats("cumulative")
-        for func, (_cc, nc, tt, ct, _callers) in list(stats.stats.items())[:_TOP_N]:  # type: ignore[attr-defined]
+        function = tuple[str, int, str]
+        function_list = cast(list[function] | None, getattr(stats, "fcn_list", None))
+        raw_stats = cast(
+            dict[function, tuple[int, int, float, float, Any]],
+            getattr(stats, "stats", {}),
+        )
+        for func in (function_list or [])[:_TOP_N]:
+            _cc, nc, tt, ct, _callers = raw_stats[func]
             filename, lineno, name = func
             entries.append({
                 "function": f"{Path(filename).name}:{lineno}:{name}",
@@ -59,7 +71,8 @@ def profile_summary(root: Path | str) -> dict[str, Any] | None:
     status = "supported" if total is not None else "weak"
     return {
         "status": status,
-        "profile": rel,
+        "profile": profiles[0],
+        "profiles": profiles,
         "files": len(collected),
         "total_tt": round(float(total), 5) if total is not None else None,
         "hotpaths": entries,
@@ -71,9 +84,10 @@ def profile_artifact(root: Path | str, goal: dict[str, Any] | None = None) -> di
     if summary is None:
         return None
     lines = [
-        f"profile file={summary['profile']} total_tt={summary['total_tt']} "
+        f"profile files={summary['files']} total_tt={summary['total_tt']} "
         f"status={summary['status']}"
     ]
+    lines.extend(f"source {profile}" for profile in summary["profiles"])
     for e in summary["hotpaths"]:
         lines.append(f"{e['cumulative']} cum {e['calls']}x {e['function']}")
     return {

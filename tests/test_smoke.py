@@ -641,6 +641,77 @@ def test_l5_profile_artifact_reads_cprofile_dump(tmp_path):
     assert any("workload" in e["function"] for e in run["hotpaths"])
 
 
+def test_l5_profile_hotpaths_are_sorted_and_profiles_are_combined(tmp_path):
+    import cProfile
+
+    from argos_epistemic import profile_summary
+
+    def short_workload():
+        return sum(range(10))
+
+    def long_workload():
+        return sum(range(500_000))
+
+    short = cProfile.Profile()
+    short.enable()
+    short_workload()
+    short.disable()
+    short.dump_stats(str(tmp_path / "a-short.prof"))
+
+    long = cProfile.Profile()
+    long.enable()
+    long_workload()
+    long.disable()
+    long.dump_stats(str(tmp_path / "b-long.prof"))
+
+    summary = profile_summary(tmp_path)
+    assert summary is not None
+    assert summary["files"] == 2
+    assert summary["profiles"] == ["a-short.prof", "b-long.prof"]
+    assert any("short_workload" in entry["function"] for entry in summary["hotpaths"])
+    assert any("long_workload" in entry["function"] for entry in summary["hotpaths"])
+    cumulative = [entry["cumulative"] for entry in summary["hotpaths"]]
+    assert cumulative == sorted(cumulative, reverse=True)
+
+
+def test_l5_profile_ignores_invalid_dumps(tmp_path):
+    import cProfile
+
+    from argos_epistemic import profile_summary
+
+    (tmp_path / "broken.prof").write_text("not pstats", encoding="utf-8")
+    assert profile_summary(tmp_path) is None
+
+    valid = cProfile.Profile()
+    valid.enable()
+    sum(range(100))
+    valid.disable()
+    valid.dump_stats(str(tmp_path / "valid.prof"))
+
+    summary = profile_summary(tmp_path)
+    assert summary is not None
+    assert summary["files"] == 1
+    assert summary["profiles"] == ["valid.prof"]
+
+
+def test_l5_profile_limits_sources_deterministically(tmp_path):
+    import cProfile
+
+    from argos_epistemic import profile_summary
+
+    for index in range(7):
+        profile = cProfile.Profile()
+        profile.enable()
+        sum(range(index + 1))
+        profile.disable()
+        profile.dump_stats(str(tmp_path / f"{index}.prof"))
+
+    summary = profile_summary(tmp_path)
+    assert summary is not None
+    assert summary["files"] == 5
+    assert summary["profiles"] == [f"{index}.prof" for index in range(5)]
+
+
 def test_l3_tree_sitter_javascript_when_available(tmp_path):
     import importlib
 
