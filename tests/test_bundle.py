@@ -150,7 +150,7 @@ def test_normative_schemas_are_loadable():
 
 
 def test_wheel_contains_normative_schemas(tmp_path):
-    subprocess.run(
+    result = subprocess.run(
         [
             sys.executable,
             "-m",
@@ -162,10 +162,10 @@ def test_wheel_contains_normative_schemas(tmp_path):
             "--wheel-dir",
             str(tmp_path),
         ],
-        check=True,
         capture_output=True,
         text=True,
     )
+    assert result.returncode == 0, result.stdout + result.stderr
     wheel = next(tmp_path.glob("argos_epistemic-*.whl"))
     with zipfile.ZipFile(wheel) as archive:
         names = set(archive.namelist())
