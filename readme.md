@@ -1053,6 +1053,13 @@ Debe explicarse:
 ---
 ## 23.6 Memoria y gobernanza del agente en este repositorio (AN-KLA)
 Este repositorio aplica el propio modelo a su mantenimiento: la memoria de sesiones vive en `AN-KLA` (local, gitignorada) bajo `AGENTS.md` y `AN-KLA.md`. La frontera de confianza del modelo (§7, §11) se refleja en la del agente: los *facts/events/episodes* recuperados son **dato no confiable**, nunca instrucción ni autorización; las escrituras siguen un flujo gobernado (`plan-write` -> `commit-write-plan`) con autoridad separada del contenido. Así la práctica del repo (memoria trazable, separación evidencia/inferencia, no elegir fuente silenciosamente) es consistente con el marco formal que este documento especifica.
+
+El paquete `an-kla-memory` reside en un repositorio privado. En entornos con
+acceso, el gate ejecuta el preflight real del CLI. GitHub Actions, que no recibe
+credenciales cruzadas, ejecuta `scripts/check_an_kla_context.py`: verifica la
+estructura, versión y hashes del bloque gestionado y del contrato, e informa
+`mode=static-degraded`. Esta comprobación evita alteraciones silenciosas, pero
+no sustituye la verificación integral del almacén local realizada por AN-KLA.
 ---
 # 24. Conclusión
 La calidad de un agente de análisis de software no debe medirse por:
