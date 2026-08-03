@@ -591,11 +591,23 @@ Los pesos dependen de (G).
 ---
 # 11. Contradicciones
 Una contradicción no equivale a falta de evidencia.
+Tampoco equivale a similitud temática ni a redacción diferente. La relación
+semántica automática sólo establece `mentions`: sirve para recuperar y ordenar
+evidencia candidata, pero no prueba una afirmación. Las relaciones del modelo
+son `mentions`, `supports`, `refutes`, `tests`, `implements` y `configures`;
+únicamente `supports` y `refutes` tienen polaridad probatoria.
+
+Cada afirmación obtiene una identidad reproducible a partir de su aspecto,
+texto normalizado por el productor y alcance. Existe contradicción sólo cuando
+dos registros comparten esa identidad y alcance, y contienen relaciones
+opuestas `supports` y `refutes`. La diversidad textual con igual polaridad no es
+conflicto; el desacuerdo sobre otro alcance tampoco lo es.
+
 Se define un registro:
 $$
 Conflict=
 (
-claim,
+claimId,
 evidence^+,
 evidence^-,
 scope,
@@ -624,6 +636,9 @@ el agente no debe elegir silenciosamente una fuente. Debe:
 ---
 # 12. Cobertura semántica
 La cobertura permite determinar si el contexto acumulado es suficiente.
+Sólo evidencia con relación `supports` contribuye a la cobertura. Una mención o
+una relación estructural puede justificar recuperación adicional, pero no eleva
+la confianza ni permite declarar cubierto un aspecto.
 Sea (T_G) el conjunto de aspectos requeridos por el objetivo:
 $$
 T_G=
@@ -1097,13 +1112,14 @@ no sustituye la verificación integral del almacén local realizada por AN-KLA.
 
 ## 23.7 Bundle machine-first mínimo
 
-La implementación de referencia expone cuatro contratos iniciales:
+La implementación de referencia expone cinco contratos iniciales:
 
 | Schema | Función | Identidad reproducible |
 |---|---|---|
 | `argos/evaluation-manifest-v1` | identidad del objetivo, evaluador, objetivo y configuración | Sí |
 | `argos/evaluation-envelope-v1` | estado compacto y punteros para consumo progresivo | Sí |
 | `argos/discovery-inventory-v1` | universo descubierto, selección y degradaciones | Sí |
+| `argos/claim-record-v1` | afirmación, relación tipada, autoridad, alcance y evidencia | Sí |
 | `argos/run-attestation-v1` | timestamps y uso observado de una ejecución | No; se enlaza al manifest |
 
 El perfil `argos/canonical-json-v1` serializa JSON con claves ordenadas, UTF-8,
@@ -1122,6 +1138,15 @@ recursos disponibles antes de recuperar evidencia extensa.
 Los datos no deterministas se conservan en una attestation separada. Dos
 ejecuciones con diferente duración o consumo pueden compartir el mismo manifest
 y `evaluation_id`; sus attestations tendrán fingerprints distintos.
+
+Cada claim record conserva `claim_id`, relación, alcance, evidencia, método,
+clase de autoridad y perfil de extracción. Una coincidencia semántica produce
+`mentions`; leer determinísticamente una declaración sólo prueba que fue
+observada, no que sea verdadera, y por eso se clasifica como
+`explicit_artifact_claim`. La verificación dinámica puede aportar
+`direct_verification`. Esta separación permite que otro agente decida cuánto
+material recuperar y qué autoridad aceptar sin depender de prosa destinada a
+humanos.
 
 Los JSON Schema normativos se distribuyen dentro de
 `argos_epistemic.schemas`. La API mínima permite enumerarlos y leerlos sin acceso
@@ -1146,8 +1171,8 @@ permanece visible, pero deja de bloquear la completitud del procedimiento. Esta
 aceptación forma parte de la configuración del objetivo y no puede inferirse del
 contenido analizado.
 
-Esta versión no incluye todavía selección estratificada, claims tipados,
-recuperación progresiva, MCP, facturación ni firma de attestations.
+Esta versión no incluye todavía selección estratificada, recuperación
+progresiva, MCP, facturación ni firma de attestations.
 ---
 # 24. Conclusión
 La calidad de un agente de análisis de software no debe medirse por:

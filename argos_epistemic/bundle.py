@@ -18,11 +18,17 @@ from .canonical import (
 MANIFEST_SCHEMA = "argos/evaluation-manifest-v1"
 ENVELOPE_SCHEMA = "argos/evaluation-envelope-v1"
 INVENTORY_SCHEMA = "argos/discovery-inventory-v1"
+CLAIM_SCHEMA = "argos/claim-record-v1"
 RUN_SCHEMA = "argos/run-attestation-v1"
-SUPPORTED_SCHEMAS = frozenset({MANIFEST_SCHEMA, ENVELOPE_SCHEMA, INVENTORY_SCHEMA, RUN_SCHEMA})
+SUPPORTED_SCHEMAS = frozenset(
+    {MANIFEST_SCHEMA, ENVELOPE_SCHEMA, INVENTORY_SCHEMA, CLAIM_SCHEMA, RUN_SCHEMA}
+)
 _STATUSES = frozenset({"pending", "running", "partial", "complete", "failed", "cancelled"})
 _INDEPENDENCE_CLASSES = frozenset(
     {"independent", "operational_dependency", "self_study", "shared_authority", "unknown"}
+)
+_CLAIM_RELATIONS = frozenset(
+    {"mentions", "supports", "refutes", "tests", "implements", "configures"}
 )
 
 
@@ -242,8 +248,36 @@ def verify_inventory(inventory: dict[str, Any]) -> None:
         raise BundleContractError("inventory fingerprint mismatch")
 
 
+def verify_claim_record(record: dict[str, Any]) -> None:
+    if record.get("schema") != CLAIM_SCHEMA:
+        raise BundleContractError("unsupported claim schema")
+    if record.get("canonicalization") != CANONICALIZATION_PROFILE:
+        raise BundleContractError("unsupported canonicalization profile")
+    string_fields = (
+        "claim_id",
+        "claim_text",
+        "aspect",
+        "scope",
+        "evidence_id",
+        "confidence",
+        "strength",
+        "authority_class",
+        "method",
+        "extraction_profile",
+    )
+    if any(not isinstance(record.get(field), str) for field in string_fields):
+        raise BundleContractError("invalid claim record field")
+    if not isinstance(record.get("timestamp"), int):
+        raise BundleContractError("invalid claim record timestamp")
+    if record.get("relation") not in _CLAIM_RELATIONS:
+        raise BundleContractError("unsupported claim relation")
+    if not verify_fingerprinted_document(record):
+        raise BundleContractError("claim record fingerprint mismatch")
+
+
 def schema_names() -> tuple[str, ...]:
     return (
+        "claim-record-v1.schema.json",
         "discovery-inventory-v1.schema.json",
         "evaluation-envelope-v1.schema.json",
         "evaluation-manifest-v1.schema.json",

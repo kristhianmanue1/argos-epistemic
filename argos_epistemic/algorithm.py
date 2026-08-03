@@ -12,6 +12,8 @@ from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from typing import Any
 
+from .canonical import CANONICALIZATION_PROFILE, content_id, fingerprinted_document
+
 
 @dataclass
 class Cost:
@@ -214,6 +216,8 @@ class Conflict:
     scope: str
     severity: float
     resolution_status: str = "open"
+    kind: str = "contradiction"
+    claim_id: str = ""
 
 
 class ConflictStore:
@@ -228,8 +232,8 @@ class ConflictStore:
 
     def merge(self, conflicts: list[Conflict]) -> None:
         for conflict in conflicts:
-            key = (conflict.scope, conflict.claim)
-            if any((c.scope, c.claim) == key for c in self._items):
+            key = (conflict.scope, conflict.claim_id or conflict.claim)
+            if any((c.scope, c.claim_id or c.claim) == key for c in self._items):
                 continue
             self._items.append(conflict)
 
@@ -300,6 +304,11 @@ class Proposition:
     strength: float = 1.0
     position: frozenset[str] = frozenset()
     impact: float = 0.0
+    relation: str = "supports"
+    claim_id: str = ""
+    claim_text: str = ""
+    authority_class: str = "unknown"
+    extraction_profile: str = "legacy-proposition-v1"
 
 
 class PropositionStore:
@@ -394,6 +403,67 @@ def link_aspects(
     return linked
 
 
+def _authority_class(method: str, declared: bool) -> str:
+    if method == "dynamic":
+        return "direct_verification"
+    if not declared:
+        return "semantic_relevance"
+    if method == "historical":
+        return "historical_evidence"
+    return "explicit_artifact_claim"
+
+
+def _declared_relations(
+    artifact: dict[str, Any], aspect_names: list[str]
+) -> list[dict[str, Any]]:
+    relations: list[dict[str, Any]] = []
+    for relation in ("supports", "refutes", "mentions", "tests", "implements", "configures"):
+        declared = artifact.get(relation)
+        if not isinstance(declared, list):
+            continue
+        for entry in declared:
+            if not isinstance(entry, dict) or not isinstance(entry.get("aspect"), str):
+                continue
+            aspect = entry["aspect"]
+            if aspect not in aspect_names:
+                continue
+            relations.append(
+                {
+                    "aspect": aspect,
+                    "relation": relation,
+                    "strength": float(entry.get("strength", 1.0)),
+                    "claim_text": str(entry.get("claim", f"{aspect} holds")),
+                    "scope": str(entry.get("scope", aspect)),
+                    "declared": True,
+                }
+            )
+    return relations
+
+
+def relate_artifact_to_aspects(
+    artifact: dict[str, Any] | None,
+    aspect_names: list[str],
+    goal: dict[str, Any],
+    linker,
+) -> list[dict[str, Any]]:
+    if artifact is None:
+        return []
+    declared = _declared_relations(artifact, aspect_names)
+    if declared:
+        return declared
+    return [
+        {
+            "aspect": aspect,
+            "relation": "mentions",
+            "strength": strength,
+            "claim_text": f"{aspect} mentioned",
+            "scope": aspect,
+            "declared": False,
+        }
+        for aspect, strength in link_aspects(artifact, aspect_names, goal, linker).items()
+    ]
+
+
 def derive_propositions(
     evidence: Evidence,
     verification: Verification,
@@ -403,33 +473,73 @@ def derive_propositions(
     goal: dict[str, Any],
     linker,
 ) -> list[Proposition]:
-    polarity = _polarity_for(verification.status)
-    links = link_aspects(artifact, aspect_names, goal, linker)
+    relations = relate_artifact_to_aspects(artifact, aspect_names, goal, linker)
     props: list[Proposition] = []
-    for aspect, strength in links.items():
-        sign = polarity
-        if sign == 0.0 and verification.status == "weak":
-            sign = 0.5
+    for item in relations:
+        relation = item["relation"]
+        if verification.method == "dynamic" and relation == "mentions":
+            relation = "refutes" if verification.status == "contradicted" else "supports"
+            item["claim_text"] = f"{item['aspect']} runtime verification passes"
+        if verification.status == "contradicted" and relation == "supports":
+            relation = "refutes"
+        sign = 1.0 if relation == "supports" else (-1.0 if relation == "refutes" else 0.0)
+        claim_text = item["claim_text"]
+        scope = item["scope"]
+        claim_identity = content_id(
+            "claim",
+            {
+                "profile": "argos/claim-identity-v1",
+                "aspect": item["aspect"],
+                "claim": claim_text,
+                "scope": scope,
+            },
+        )
         props.append(
             Proposition(
-                aspect=aspect,
+                aspect=item["aspect"],
                 polarity=sign,
-                claim=f"{evidence.kind}@{evidence.location} -> {aspect} ({verification.method})",
+                claim=claim_text,
                 evidence_id=evidence.id,
                 confidence=verification.confidence,
                 method=verification.method,
-                scope=evidence.location,
+                scope=scope,
                 timestamp=evidence.timestamp,
                 dependencies=(evidence.id,),
-                strength=strength,
+                strength=item["strength"],
                 position=_tokens(str(artifact.get("content", ""))) if artifact else frozenset(),
                 impact=float(artifact.get("impact", 0.0) or 0.0) if artifact else 0.0,
+                relation=relation,
+                claim_id=claim_identity,
+                claim_text=claim_text,
+                authority_class=_authority_class(verification.method, item["declared"]),
+                extraction_profile="argos/typed-proposition-v1",
             )
         )
     return props
 
 
 CORROBORATION = 1.8
+
+
+def _claim_record(proposition: Proposition) -> dict[str, Any]:
+    return fingerprinted_document(
+        {
+            "schema": "argos/claim-record-v1",
+            "canonicalization": CANONICALIZATION_PROFILE,
+            "claim_id": proposition.claim_id,
+            "claim_text": proposition.claim_text,
+            "aspect": proposition.aspect,
+            "relation": proposition.relation,
+            "scope": proposition.scope,
+            "evidence_id": proposition.evidence_id,
+            "confidence": str(proposition.confidence),
+            "strength": str(proposition.strength),
+            "authority_class": proposition.authority_class,
+            "method": proposition.method,
+            "timestamp": proposition.timestamp,
+            "extraction_profile": proposition.extraction_profile,
+        }
+    )
 
 
 def aspect_score(props: list[Proposition], corroboration: float = CORROBORATION) -> float:
@@ -441,7 +551,11 @@ def aspect_score(props: list[Proposition], corroboration: float = CORROBORATION)
     closes the overconfidence gap exposed by the P2 benchmark, where 1 artifact
     linking all aspects falsely reported coverage ≈ 0.9.
     """
-    pos_mass = sum(p.polarity * p.confidence for p in props if p.polarity > 0)
+    pos_mass = sum(
+        p.polarity * p.confidence
+        for p in props
+        if p.relation == "supports" and p.polarity > 0
+    )
     return max(0.0, min(1.0, pos_mass / max(0.0001, corroboration)))
 
 
@@ -486,9 +600,13 @@ def compute_residual_risk(
     for prop in propositions:
         by_aspect.setdefault(prop.aspect, []).append(prop)
     missing = sum(
-        1 for n in names if not any(p.polarity > 0 for p in by_aspect.get(n, []))
+        1
+        for n in names
+        if not any(
+            p.relation == "supports" and p.polarity > 0 for p in by_aspect.get(n, [])
+        )
     ) / len(names)
-    contra = sum(1 for p in propositions if p.polarity < 0)
+    contra = sum(1 for p in propositions if p.relation == "refutes")
     contra_share = contra / len(propositions)
     return max(0.0, min(1.0, 0.7 * missing + 0.3 * contra_share))
 
@@ -522,7 +640,7 @@ def min_sources_met(
         return True
     by_aspect: dict[str, set[str]] = {}
     for prop in propositions:
-        if prop.polarity > 0:
+        if prop.relation == "supports" and prop.polarity > 0:
             by_aspect.setdefault(prop.aspect, set()).add(prop.evidence_id)
     return all(len(by_aspect.get(a["name"], set())) >= min_sources for a in aspects)
 
@@ -560,7 +678,7 @@ def production_sources_met(
         return True
     by_aspect: dict[str, set[str]] = {}
     for prop in propositions:
-        if prop.polarity > 0 and prop.impact > 0.0:
+        if prop.relation == "supports" and prop.polarity > 0 and prop.impact > 0.0:
             by_aspect.setdefault(prop.aspect, set()).add(prop.evidence_id)
     return all(by_aspect.get(a["name"], set()) for a in aspects)
 
@@ -794,52 +912,29 @@ def detect_proposition_conflicts(
     similarity: Callable[[frozenset[str], frozenset[str]], float] = _jaccard,
     threshold: float = 0.5,
 ) -> list[Conflict]:
-    """Contradictions between propositions, not between files (readme.md §11).
-
-    Two signals per aspect:
-    * polarity contradiction (strong): the aspect has both a positive and a
-      negative proposition (e.g. a passing and a failing test on the same
-      aspect) -> severity 0.9.
-    * claim divergence (weaker): same polarity but divergent positions
-      (``similarity < threshold``) -> severity from the confidence gap.
-
-    Identity is stable: keyed by ``(aspect, claim)`` so the store dedups across
-    loop iterations instead of accumulating.
-    """
-    by_aspect: dict[str, list[Proposition]] = {}
+    """Contradicciones verificables entre claims equivalentes y relaciones opuestas."""
+    _ = similarity, threshold
+    grouped: dict[tuple[str, str], list[Proposition]] = {}
     for prop in propositions:
-        by_aspect.setdefault(prop.aspect, []).append(prop)
-    conflicts: list[Conflict] = []
-    for aspect, props in by_aspect.items():
-        if len(props) < 2:
+        if not prop.claim_id or prop.relation not in {"supports", "refutes"}:
             continue
-        pos = [p for p in props if p.polarity > 0]
-        neg = [p for p in props if p.polarity < 0]
-        if pos and neg:
+        grouped.setdefault((prop.claim_id, prop.scope), []).append(prop)
+    conflicts: list[Conflict] = []
+    for (claim_id, scope), props in grouped.items():
+        supporting = [prop for prop in props if prop.relation == "supports"]
+        refuting = [prop for prop in props if prop.relation == "refutes"]
+        if supporting and refuting:
+            claim_text = supporting[0].claim_text or supporting[0].claim
             conflicts.append(
                 Conflict(
-                    claim=f"contradiccion en {aspect}",
-                    evidence_for=tuple(p.evidence_id for p in pos),
-                    evidence_against=tuple(p.evidence_id for p in neg),
-                    scope=aspect,
+                    claim=claim_text,
+                    evidence_for=tuple(prop.evidence_id for prop in supporting),
+                    evidence_against=tuple(prop.evidence_id for prop in refuting),
+                    scope=scope,
                     severity=0.9,
                     resolution_status="open",
-                )
-            )
-            continue
-        ref = props[0]
-        against = [p for p in props[1:] if similarity(ref.position, p.position) < threshold]
-        if against:
-            confs = [p.confidence for p in props]
-            severity = min(1.0, 0.5 + max(confs) - min(confs))
-            conflicts.append(
-                Conflict(
-                    claim=f"divergencia en {aspect}",
-                    evidence_for=tuple(ref.evidence_id for _ in range(1)),
-                    evidence_against=tuple(p.evidence_id for p in against),
-                    scope=aspect,
-                    severity=severity,
-                    resolution_status="open",
+                    kind="contradiction",
+                    claim_id=claim_id,
                 )
             )
     return conflicts
@@ -929,7 +1024,7 @@ def synthesize_report(
         coverage >= goal.get("theta_coverage", budget.theta_coverage)
         and residual_risk <= goal.get("rho_risk", budget.rho_risk)
     )
-    no_negative = not any(p.polarity < 0 for p in propositions)
+    no_negative = not any(p.relation == "refutes" for p in propositions)
     no_critical_conflicts = not conflicts.critical()
     sources_met = min_sources_met(
         propositions, aspects, int(goal.get("min_sources_per_aspect", 2))
@@ -1010,6 +1105,8 @@ def synthesize_report(
         "conflicts": [
             {
                 "claim": c.claim,
+                "claim_id": c.claim_id,
+                "kind": c.kind,
                 "scope": c.scope,
                 "severity": round(c.severity, 4),
                 "evidence_for": list(c.evidence_for),
@@ -1037,10 +1134,16 @@ def synthesize_report(
             "next_actions": next_actions,
         },
         "levels_covered": sorted(evidence.levels()),
+        "claims": [_claim_record(proposition) for proposition in propositions],
         "conclusions": [
             {
                 "claim": p.claim,
+                "claim_id": p.claim_id,
+                "claim_text": p.claim_text,
                 "aspect": p.aspect,
+                "relation": p.relation,
+                "authority_class": p.authority_class,
+                "extraction_profile": p.extraction_profile,
                 "confidence": p.confidence,
                 "status": _epistemic_status(p.polarity, p.confidence),
                 "polarity": p.polarity,
