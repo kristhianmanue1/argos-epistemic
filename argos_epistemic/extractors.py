@@ -1,10 +1,10 @@
-"""Extractores L0/L1/L2/L4 sobre un sistema de archivos real.
+"""Extracción multinivel sobre un sistema de archivos real.
 
-Produce un ``system`` consumible por ``analyze_system``. Es una capa minima y
-declarada: implementa intencion (L0), topologia (L1), entorno reproducible (L2)
-y codigo/pruebas (L4/L5-comportamiento-estatico). No implementa AST, grafo de
-llamadas ni ejecucion (L3 simbolico, L5 dinamico), por lo que ``Impact`` y
-``Centrality`` no se computan (ver readme.md §6.1).
+Produce un ``system`` consumible por ``analyze_system``. Integra intención
+(L0), topología (L1), entorno reproducible (L2), grafo de llamadas enchufable
+(L3), comportamiento estático (L4) y evidencia histórica o dinámica (L5).
+``Impact`` y ``Centrality`` se computan cuando existe un extractor L3 para el
+lenguaje observado (ver readme.md §6.1).
 
 La ``relevance`` de cada artefacto es la aproximacion publica de ``R(x|G)``:
 heuristica por nombre/extension condicionada al objetivo ``G``.
@@ -22,6 +22,7 @@ from .callgraph import CallGraph, build_multi_call_graph, module_metrics
 from .dense_semantic import dense_semantic, dense_semantic_available
 
 DEFAULT_IGNORES = {
+    ".ds_store",
     ".git",
     ".venv",
     "venv",
@@ -412,13 +413,17 @@ def analyze_path(
     run_dynamic: bool = False,
     run_history: bool = False,
     run_logs: bool = False,
+    run_coverage: bool = False,
+    run_profile: bool = False,
     dynamic_timeout: int = 120,
     semantic_fn=None,
 ) -> dict[str, Any]:
     from .algorithm import Budget, analyze_system
+    from .coverage import coverage_artifact
     from .dynamic import dynamic_artifact
     from .history import history_artifact
     from .logs import logs_artifact
+    from .profile import profile_artifact
 
     root_path = Path(root)
     if budget is None:
@@ -451,6 +456,16 @@ def analyze_path(
         system["artifacts"].append(
             _deferred("L5:gitlog", "(history)", 5, 0.7, "history", "historical",
                       lambda: _unwrap(history_artifact(root_path, goal)))
+        )
+    if run_coverage and (root_path / "coverage.xml").exists():
+        system["artifacts"].append(
+            _deferred("L5:coverage", "(coverage)", 5, 0.8, "coverage", "historical",
+                      lambda: _unwrap(coverage_artifact(root_path, goal)))
+        )
+    if run_profile and any(root_path.rglob("*.prof")):
+        system["artifacts"].append(
+            _deferred("L5:profile", "(profile)", 5, 0.6, "profile", "historical",
+                      lambda: _unwrap(profile_artifact(root_path, goal)))
         )
     if run_dynamic:
         label = detect_runner(root_path)[0]

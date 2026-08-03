@@ -18,6 +18,7 @@ from .algorithm import (
 )
 from .behavior import FuncBehavior, behavior_summary, extract_behavior
 from .callgraph import CallGraph, build_call_graph, build_multi_call_graph, register_l3_extractor
+from .coverage import coverage_artifact, coverage_summary
 from .dynamic import detect_runner, dynamic_artifact, run_pytest, run_tests
 from .extractors import (
     analyze_path,
@@ -29,6 +30,7 @@ from .extractors import (
 )
 from .history import git_log_summary, history_artifact
 from .logs import logs_artifact
+from .profile import profile_artifact, profile_summary
 from .sandbox import run_isolated, scrub_env
 
 try:
@@ -58,6 +60,8 @@ __all__ = [
     "build_call_graph",
     "build_multi_call_graph",
     "capacity_for_budget",
+    "coverage_artifact",
+    "coverage_summary",
     "default_link_threshold",
     "default_semantic",
     "dense_semantic",
@@ -71,6 +75,8 @@ __all__ = [
     "history_artifact",
     "lexical_semantic",
     "logs_artifact",
+    "profile_artifact",
+    "profile_summary",
     "propagate_confidence",
     "q_g_invariant",
     "register_l3_extractor",

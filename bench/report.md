@@ -7,36 +7,36 @@ baselines simples, y el aporte de componentes (embedding vs léxico vs L3).
 Honesto: esto NO es validación sobre repos reales con etiquetado amplio;
 calibración de confianza (Brier) queda pendiente.
 
-| fixture | método | precision | recall | tokens | argos_coverage | complete |
-|---|---|---|---|---|---|---|
-| auth_project | argos(lex,k=2) | 1.0 | 1.0 | 100 | 0.83 | False |
-| auth_project | argos(lex,k=3) | 1.0 | 1.0 | 100 | 0.83 | False |
-| auth_project | argos(embed) | 0.75 | 0.5 | 45 | 1.00 | True |
-| auth_project | argos(noL3) | 1.0 | 1.0 | 79 | - | - |
-| auth_project | full_read | 0.75 | 1.0 | 100 | - | - |
-| auth_project | lexical_topk | 1.0 | 1.0 | 79 | - | - |
-| auth_project | random_k | 0.833 | 0.833 | 75 | - | - |
-| math_lib | argos(lex,k=2) | 1.0 | 1.0 | 66 | 0.67 | False |
-| math_lib | argos(lex,k=3) | 1.0 | 1.0 | 66 | 0.67 | False |
-| math_lib | argos(embed) | 0.8 | 1.0 | 55 | 1.00 | True |
-| math_lib | argos(noL3) | 1.0 | 1.0 | 45 | - | - |
-| math_lib | full_read | 0.667 | 1.0 | 66 | - | - |
-| math_lib | lexical_topk | 1.0 | 1.0 | 45 | - | - |
-| math_lib | random_k | 0.75 | 0.75 | 45 | - | - |
-| semantic_commerce | argos(lex,k=2) | 0.0 | 0.0 | 123 | 0.00 | False |
-| semantic_commerce | argos(lex,k=3) | 0.0 | 0.0 | 123 | 0.00 | False |
-| semantic_commerce | argos(embed) | 0.75 | 0.5 | 55 | 1.00 | True |
-| semantic_commerce | argos(noL3) | 0.0 | 0.0 | 0 | - | - |
-| semantic_commerce | full_read | 0.75 | 1.0 | 123 | - | - |
-| semantic_commerce | lexical_topk | 1.0 | 1.0 | 101 | - | - |
-| semantic_commerce | random_k | 0.667 | 0.667 | 93 | - | - |
-| semantic_lifecycle | argos(lex,k=2) | 0.0 | 0.0 | 123 | 0.00 | False |
-| semantic_lifecycle | argos(lex,k=3) | 0.0 | 0.0 | 123 | 0.00 | False |
-| semantic_lifecycle | argos(embed) | 0.5 | 0.333 | 47 | 1.00 | True |
-| semantic_lifecycle | argos(noL3) | 0.0 | 0.0 | 0 | - | - |
-| semantic_lifecycle | full_read | 0.75 | 1.0 | 123 | - | - |
-| semantic_lifecycle | lexical_topk | 1.0 | 1.0 | 103 | - | - |
-| semantic_lifecycle | random_k | 0.667 | 0.667 | 94 | - | - |
+| fixture | método | precision | recall | tokens | argos_coverage | complete | brier |
+|---|---|---|---|---|---|---|---|
+| auth_project | argos(lex,k=2) | 1.0 | 1.0 | 100 | 0.83 | False | 0.124 |
+| auth_project | argos(lex,k=3) | 1.0 | 1.0 | 100 | 0.83 | False | 0.124 |
+| auth_project | argos(embed) | 0.75 | 0.5 | 45 | 1.00 | True | 0.273 |
+| auth_project | argos(noL3) | 1.0 | 1.0 | 79 | - | - | - |
+| auth_project | full_read | 0.75 | 1.0 | 100 | - | - | - |
+| auth_project | lexical_topk | 1.0 | 1.0 | 79 | - | - | - |
+| auth_project | random_k | 0.833 | 0.833 | 75 | - | - | - |
+| math_lib | argos(lex,k=2) | 1.0 | 1.0 | 66 | 0.67 | False | 0.085 |
+| math_lib | argos(lex,k=3) | 1.0 | 1.0 | 66 | 0.67 | False | 0.085 |
+| math_lib | argos(embed) | 0.8 | 1.0 | 55 | 1.00 | True | 0.250 |
+| math_lib | argos(noL3) | 1.0 | 1.0 | 45 | - | - | - |
+| math_lib | full_read | 0.667 | 1.0 | 66 | - | - | - |
+| math_lib | lexical_topk | 1.0 | 1.0 | 45 | - | - | - |
+| math_lib | random_k | 0.75 | 0.75 | 45 | - | - | - |
+| semantic_commerce | argos(lex,k=2) | 0.0 | 0.0 | 123 | 0.00 | False | - |
+| semantic_commerce | argos(lex,k=3) | 0.0 | 0.0 | 123 | 0.00 | False | - |
+| semantic_commerce | argos(embed) | 0.75 | 0.5 | 55 | 1.00 | True | 0.423 |
+| semantic_commerce | argos(noL3) | 0.0 | 0.0 | 0 | - | - | - |
+| semantic_commerce | full_read | 0.75 | 1.0 | 123 | - | - | - |
+| semantic_commerce | lexical_topk | 1.0 | 1.0 | 101 | - | - | - |
+| semantic_commerce | random_k | 0.667 | 0.667 | 93 | - | - | - |
+| semantic_lifecycle | argos(lex,k=2) | 0.0 | 0.0 | 123 | 0.00 | False | - |
+| semantic_lifecycle | argos(lex,k=3) | 0.0 | 0.0 | 123 | 0.00 | False | - |
+| semantic_lifecycle | argos(embed) | 0.5 | 0.333 | 47 | 1.00 | True | 0.439 |
+| semantic_lifecycle | argos(noL3) | 0.0 | 0.0 | 0 | - | - | - |
+| semantic_lifecycle | full_read | 0.75 | 1.0 | 123 | - | - | - |
+| semantic_lifecycle | lexical_topk | 1.0 | 1.0 | 103 | - | - | - |
+| semantic_lifecycle | random_k | 0.667 | 0.667 | 94 | - | - | - |
 
 ## Lectura
 - **argos(embed)** debe igualar o superar a los baselines en recall al
@@ -45,6 +45,11 @@ calibración de confianza (Brier) queda pendiente.
   la diferencia en selección mide su aporte.
 - **Ablación léxica**: el linker de embeddings (char-n-gramas) vs Jaccard
   léxico mide el aporte del surrogate semántico.
+- **Brier** (sólo variantes argos, que emiten `confidence` por conclusión):
+  calibra la confianza frente al gold. `0.0` = calibrado; alto implica
+  enlaces confiantes fuera del gold (sobreconfianza) o incertidumbre sobre
+  gold real (subconfianza). P/R no lo detecta: dos métodos con recall 1.0
+  pueden tener Brier muy distinto.
 
 ## Reproducibilidad
 ```bash
@@ -73,3 +78,9 @@ python bench/run_benchmark.py --check    # CI: falla si el reporte está stale
   fila no la regenera `--check`.
 - `full_read` recall 1.0 pero precision baja (lee distractores); `lexical_topk` iguala a
   argos en token-obvias pero es degenerado en semánticas (scores 0) y necesita `k` hardcodeado.
+- **Brier (calibración de confianza)**: argos(lex,k=2) medio **0.105**;
+  argos(embed) medio **0.346**. El linker léxico, al no enlazar
+  distractores en token-obvias, es más calibrado donde recupera; el surrogate de
+  char-n-gramas sobre-enlaza (confianza alta fuera del gold) y por eso su Brier sube.
+  Sigue siendo un micro-benchmark: la calibración real requiere `confidence` por
+  método sobre repos con gold amplio (no sólo etiqueta binaria por aspecto).

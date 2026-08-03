@@ -18,9 +18,10 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -e . --no-deps
+          pip install "pytest>=8" "ruff>=0.6" "mypy>=1.11"
       - name: Lint (ruff)
-        run: python -m ruff check argos_epistemic bench tests
+        run: python -m ruff check argos_epistemic bench tests scripts
       - name: Type check (mypy)
         run: python -m mypy argos_epistemic
       - name: pytest
@@ -31,5 +32,10 @@ jobs:
         run: python examples/regenerate_case_studies.py --target argos --check
       - name: Benchmark freshness
         run: python bench/run_benchmark.py --check
-      - name: AN-KLA preflight
-        run: python -m an_kla --project-root . context status
+      - name: AN-KLA context integrity
+        run: |
+          if python -c "import an_kla" 2>/dev/null; then
+            python -m an_kla --project-root . context status
+          else
+            python scripts/check_an_kla_context.py
+          fi

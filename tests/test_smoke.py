@@ -220,10 +220,18 @@ def test_extract_system_over_real_repo():
     assert all(0.0 <= a["relevance"] <= 1.0 for a in system["artifacts"])
 
 
-def test_extract_ignores_venv_and_cache():
-    system = extract_system(".")
+def test_extract_ignores_venv_and_cache(tmp_path):
+    (tmp_path / ".venv").mkdir()
+    (tmp_path / ".venv" / "hidden.py").write_text("secret = True", encoding="utf-8")
+    (tmp_path / ".DS_Store").write_bytes(b"metadata")
+    (tmp_path / "visible.py").write_text("visible = True", encoding="utf-8")
+
+    system = extract_system(tmp_path)
     ids = {a["id"] for a in system["artifacts"]}
-    assert not any(part in ids for part in (".venv", "__pycache__", ".an-kla"))
+    topology = next(a["content"] for a in system["artifacts"] if a["id"] == "L1:topology")
+    assert "visible.py" in ids
+    assert ".venv" not in topology
+    assert ".DS_Store" not in topology
 
 
 def test_analyze_path_terminates_on_real_repo():
@@ -561,6 +569,29 @@ def test_h6_compression_digest_is_stable_sha256():
     assert e1.digest == e2.digest  # stable (not hash()-randomized)
 
 
+def test_link_impact_prior_lifts_production_code_above_threshold():
+    # Lever del item "linker sobre-enlaza docs": S_semantic sola favorece docs
+    # cortos sobre codigo diluido. El prior de impact (link_impact_weight) levanta
+    # el link efectivo del codigo productivo sin tocar a los docs (impact=0).
+    from argos_epistemic.algorithm import link_aspects
+
+    def low(content, aspect):  # sim baja uniforme (codigo y doc por igual)
+        return 0.3
+
+    code = {"id": "core.py", "content": "def run(): pass", "impact": 0.5}
+    doc = {"id": "README.md", "content": "all about commands", "impact": 0.0}
+    goal = {"aspects": ["command"], "link_threshold": 0.6}
+
+    # sin prior: ninguno enlaza (0.3 < 0.6)
+    assert link_aspects(code, ["command"], goal, low) == {}
+    assert link_aspects(doc, ["command"], goal, low) == {}
+
+    # con prior w=1.0: code 0.3+0.5=0.8 enlaza; doc 0.3+0=0.3 no
+    goal_lift = {"aspects": ["command"], "link_threshold": 0.6, "link_impact_weight": 1.0}
+    assert link_aspects(code, ["command"], goal_lift, low)["command"] >= 0.6
+    assert link_aspects(doc, ["command"], goal_lift, low) == {}
+
+
 def test_l5_logs_artifact(tmp_path):
     from argos_epistemic import logs_artifact
 
@@ -570,6 +601,123 @@ def test_l5_logs_artifact(tmp_path):
     assert art["run"]["error_signals"] >= 1
     assert art["run"]["status"] == "contradicted"
     assert art["kind"] == "logs"
+
+
+def test_l5_coverage_artifact_parses_cobertura(tmp_path):
+    from argos_epistemic import coverage_artifact, coverage_summary
+
+    assert coverage_summary(tmp_path) is None  # sin coverage.xml -> None
+    xml = (
+        '<?xml version="1.0" ?>\n<coverage version="7.0" timestamp="0" line-rate="0.6">\n'
+        "  <packages><package><classes>\n"
+        '    <class filename="src/pkg/a.py" line-rate="0.9"><lines/></class>\n'
+        '    <class filename="src/pkg/b.py" line-rate="0.2"><lines/></class>\n'
+        "  </classes></package></packages>\n</coverage>\n"
+    )
+    (tmp_path / "coverage.xml").write_text(xml, encoding="utf-8")
+    art = coverage_artifact(tmp_path)
+    assert art is not None and art["kind"] == "coverage"
+    assert art["verification_method"] == "historical"
+    run = art["run"]
+    assert run["line_rate"] == 0.6
+    assert run["files"] == 2
+    assert run["covered_files"] == 1  # sólo a.py >= 0.8
+    assert run["status"] == "supported"  # total 0.6 >= 0.5
+    assert "src/pkg/a.py" in run["per_file"]
+
+
+def test_l5_profile_artifact_reads_cprofile_dump(tmp_path):
+    import cProfile
+
+    from argos_epistemic import profile_artifact, profile_summary
+
+    assert profile_summary(tmp_path) is None  # sin *.prof -> None
+
+    def workload():
+        return sum(range(1000))
+
+    prof = cProfile.Profile()
+    prof.enable()
+    workload()
+    prof.disable()
+    prof.dump_stats(str(tmp_path / "out.prof"))
+    art = profile_artifact(tmp_path)
+    assert art is not None and art["kind"] == "profile"
+    assert art["verification_method"] == "historical"
+    run = art["run"]
+    assert run["total_tt"] is not None
+    assert any("workload" in e["function"] for e in run["hotpaths"])
+
+
+def test_l5_profile_hotpaths_are_sorted_and_profiles_are_combined(tmp_path):
+    import cProfile
+
+    from argos_epistemic import profile_summary
+
+    def short_workload():
+        return sum(range(10))
+
+    def long_workload():
+        return sum(range(500_000))
+
+    short = cProfile.Profile()
+    short.enable()
+    short_workload()
+    short.disable()
+    short.dump_stats(str(tmp_path / "a-short.prof"))
+
+    long = cProfile.Profile()
+    long.enable()
+    long_workload()
+    long.disable()
+    long.dump_stats(str(tmp_path / "b-long.prof"))
+
+    summary = profile_summary(tmp_path)
+    assert summary is not None
+    assert summary["files"] == 2
+    assert summary["profiles"] == ["a-short.prof", "b-long.prof"]
+    assert any("short_workload" in entry["function"] for entry in summary["hotpaths"])
+    assert any("long_workload" in entry["function"] for entry in summary["hotpaths"])
+    cumulative = [entry["cumulative"] for entry in summary["hotpaths"]]
+    assert cumulative == sorted(cumulative, reverse=True)
+
+
+def test_l5_profile_ignores_invalid_dumps(tmp_path):
+    import cProfile
+
+    from argos_epistemic import profile_summary
+
+    (tmp_path / "broken.prof").write_text("not pstats", encoding="utf-8")
+    assert profile_summary(tmp_path) is None
+
+    valid = cProfile.Profile()
+    valid.enable()
+    sum(range(100))
+    valid.disable()
+    valid.dump_stats(str(tmp_path / "valid.prof"))
+
+    summary = profile_summary(tmp_path)
+    assert summary is not None
+    assert summary["files"] == 1
+    assert summary["profiles"] == ["valid.prof"]
+
+
+def test_l5_profile_limits_sources_deterministically(tmp_path):
+    import cProfile
+
+    from argos_epistemic import profile_summary
+
+    for index in range(7):
+        profile = cProfile.Profile()
+        profile.enable()
+        sum(range(index + 1))
+        profile.disable()
+        profile.dump_stats(str(tmp_path / f"{index}.prof"))
+
+    summary = profile_summary(tmp_path)
+    assert summary is not None
+    assert summary["files"] == 5
+    assert summary["profiles"] == [f"{index}.prof" for index in range(5)]
 
 
 def test_l3_tree_sitter_javascript_when_available(tmp_path):
@@ -883,3 +1031,71 @@ def test_linker_threshold_mismatch_no_longer_overlinks_noise():
 
     noise = "*.pyc\n__pycache__/\n.env\n"  # un .gitignore típico
     assert embedding_semantic(noise, "memory") < 0.55  # por debajo del threshold -> no enlace
+
+
+def test_production_evidence_gate_blocks_overclaim_on_peripheral_only_support():
+    # Repro del hallazgo click (validacion repos reales): el linker denso enlaza
+    # docs/examples (impact=0) y satura coverage declarando complete=True con
+    # recall 0. El gate exige apoyo productivo (impact>0) cuando hay datos L3.
+    from argos_epistemic.algorithm import production_sources_met, system_has_production
+
+    # Sistema CON datos L3: un artefacto periferico (doc, impact=0) soporta el
+    # aspecto y un artefacto productivo (impact>0) existe pero NO soporta el aspecto.
+    system_with_l3 = {
+        "name": "click_like",
+        "artifacts": [
+            {"id": "doc", "content": "all about commands", "level": 0, "relevance": 0.9,
+             "kind": "doc", "impact": 0.0, "supports": [{"aspect": "command"}]},
+            {"id": "core.py", "content": "def run(): pass", "level": 4, "relevance": 0.5,
+             "kind": "code", "impact": 0.7},
+        ],
+    }
+    goal = {"name": "g", "aspects": ["command"], "theta_coverage": 0.3, "rho_risk": 0.5,
+            "min_sources_per_aspect": 1}
+    assert system_has_production(system_with_l3) is True
+    report = analyze_system(system_with_l3, goal, Budget(tokens_remaining=10000, tool_remaining=20))
+    # coverage (0.5) y min_sources(1) se cumplen, pero complete debe ser False:
+    # el aspecto no descansa sobre evidencia productiva (gate anti-overclaim).
+    assert report["complete"] is False
+
+    # Helper directo: soporte solo periferico -> False; con una proposicion
+    # productiva (impact>0) -> True.
+    from argos_epistemic.algorithm import Proposition, PropositionStore
+
+    store = PropositionStore()
+    store.add(Proposition("command", 1.0, "c", "doc", 0.9, "symbolic", "doc", impact=0.0))
+    assert production_sources_met(store, [{"name": "command"}]) is False
+    store.add(Proposition("command", 1.0, "c2", "core.py", 0.9, "deterministic", "core.py", impact=0.7))
+    assert production_sources_met(store, [{"name": "command"}]) is True
+
+    # Sistema SIN datos L3 (fixtures): el gate es vacuo (fallback al comportamiento previo).
+    system_no_l3 = {
+        "name": "fixture_like",
+        "artifacts": [
+            {"id": "doc", "content": "all about commands", "level": 0, "relevance": 0.9,
+             "kind": "doc", "supports": [{"aspect": "command"}]},
+        ],
+    }
+    assert system_has_production(system_no_l3) is False
+    report2 = analyze_system(system_no_l3, goal, Budget(tokens_remaining=10000, tool_remaining=20))
+    # Sin gate de produccion, coverage puede llevar a complete=True (umbral bajo).
+    assert report2["complete"] is True
+
+
+def test_production_gate_can_be_disabled_via_goal():
+    # El gate es opt-out via goal: util cuando se quiere el comportamiento previo
+    # incluso con datos L3 (p.ej. analisis solo de intencion/docs).
+    system = {
+        "name": "s",
+        "artifacts": [
+            {"id": "doc", "content": "all about commands", "level": 0, "relevance": 0.9,
+             "kind": "doc", "impact": 0.0, "supports": [{"aspect": "command"}]},
+            {"id": "core.py", "content": "def run(): pass", "level": 4, "relevance": 0.5,
+             "kind": "code", "impact": 0.7},
+        ],
+    }
+    goal = {"name": "g", "aspects": ["command"], "theta_coverage": 0.3, "rho_risk": 0.5,
+            "min_sources_per_aspect": 1,
+            "require_production_evidence": False}
+    report = analyze_system(system, goal, Budget(tokens_remaining=10000, tool_remaining=20))
+    assert report["complete"] is True
