@@ -1094,6 +1094,39 @@ credenciales cruzadas, ejecuta `scripts/check_an_kla_context.py`: verifica la
 estructura, versión y hashes del bloque gestionado y del contrato, e informa
 `mode=static-degraded`. Esta comprobación evita alteraciones silenciosas, pero
 no sustituye la verificación integral del almacén local realizada por AN-KLA.
+
+## 23.7 Bundle machine-first mínimo
+
+La implementación de referencia expone tres contratos iniciales:
+
+| Schema | Función | Identidad reproducible |
+|---|---|---|
+| `argos/evaluation-manifest-v1` | identidad del objetivo, evaluador, objetivo y configuración | Sí |
+| `argos/evaluation-envelope-v1` | estado compacto y punteros para consumo progresivo | Sí |
+| `argos/run-attestation-v1` | timestamps y uso observado de una ejecución | No; se enlaza al manifest |
+
+El perfil `argos/canonical-json-v1` serializa JSON con claves ordenadas, UTF-8,
+separadores compactos y rechazo de claves no textuales y números de punto
+flotante. Los decimales se expresan como strings o enteros escalados para evitar
+divergencias de serialización entre runtimes. Los fingerprints usan SHA-256
+sobre esa representación y excluyen únicamente el propio campo `fingerprint`.
+Un ID content-addressed sólo es estable dentro de la versión de canonicalización
+que declara.
+
+El manifest es el registro canónico de lo que Argos configuró y evaluó. No
+certifica la verdad total del objetivo. El envelope se liga al fingerprint del
+manifest y permite que un agente conozca estado, razones de terminación y
+recursos disponibles antes de recuperar evidencia extensa.
+
+Los datos no deterministas se conservan en una attestation separada. Dos
+ejecuciones con diferente duración o consumo pueden compartir el mismo manifest
+y `evaluation_id`; sus attestations tendrán fingerprints distintos.
+
+Los JSON Schema normativos se distribuyen dentro de
+`argos_epistemic.schemas`. La API mínima permite enumerarlos y leerlos sin acceso
+al checkout ni a la red. Esta primera versión no incluye todavía inventario
+completo, claims tipados, recuperación progresiva, MCP, facturación ni firma de
+attestations.
 ---
 # 24. Conclusión
 La calidad de un agente de análisis de software no debe medirse por:

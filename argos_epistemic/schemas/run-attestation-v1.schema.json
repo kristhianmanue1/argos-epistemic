@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "argos/run-attestation-v1",
+  "$comment": "argos/canonical-json-v1 rejects floating-point values; use decimal strings or scaled integers",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "canonicalization",
+    "manifest_fingerprint",
+    "started_at",
+    "finished_at",
+    "usage",
+    "fingerprint"
+  ],
+  "properties": {
+    "schema": {"const": "argos/run-attestation-v1"},
+    "canonicalization": {"const": "argos/canonical-json-v1"},
+    "manifest_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "started_at": {"type": "string"},
+    "finished_at": {"type": "string"},
+    "usage": {"type": "object"},
+    "fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}

@@ -17,7 +17,30 @@ from .algorithm import (
     run,
 )
 from .behavior import FuncBehavior, behavior_summary, extract_behavior
+from .bundle import (
+    ENVELOPE_SCHEMA,
+    MANIFEST_SCHEMA,
+    RUN_SCHEMA,
+    BundleContractError,
+    build_envelope,
+    build_manifest,
+    build_run_attestation,
+    load_schema,
+    schema_names,
+    verify_envelope,
+    verify_manifest,
+    verify_run_attestation,
+)
 from .callgraph import CallGraph, build_call_graph, build_multi_call_graph, register_l3_extractor
+from .canonical import (
+    CANONICALIZATION_PROFILE,
+    CanonicalizationError,
+    canonical_json_bytes,
+    content_id,
+    fingerprinted_document,
+    sha256_fingerprint,
+    verify_fingerprinted_document,
+)
 from .coverage import coverage_artifact, coverage_summary
 from .dynamic import detect_runner, dynamic_artifact, run_pytest, run_tests
 from .extractors import (
@@ -42,11 +65,17 @@ except Exception:  # pragma: no cover - optional heavy dep absent at import time
         return False
 
 __all__ = [
+    "CANONICALIZATION_PROFILE",
+    "ENVELOPE_SCHEMA",
+    "MANIFEST_SCHEMA",
+    "RUN_SCHEMA",
     "Action",
     "Belief",
     "BeliefStore",
     "Budget",
+    "BundleContractError",
     "CallGraph",
+    "CanonicalizationError",
     "Conflict",
     "ConflictStore",
     "Cost",
@@ -58,8 +87,13 @@ __all__ = [
     "analyze_system",
     "behavior_summary",
     "build_call_graph",
+    "build_envelope",
+    "build_manifest",
     "build_multi_call_graph",
+    "build_run_attestation",
+    "canonical_json_bytes",
     "capacity_for_budget",
+    "content_id",
     "coverage_artifact",
     "coverage_summary",
     "default_link_threshold",
@@ -71,9 +105,11 @@ __all__ = [
     "embedding_semantic",
     "extract_behavior",
     "extract_system",
+    "fingerprinted_document",
     "git_log_summary",
     "history_artifact",
     "lexical_semantic",
+    "load_schema",
     "logs_artifact",
     "profile_artifact",
     "profile_summary",
@@ -84,5 +120,11 @@ __all__ = [
     "run_isolated",
     "run_pytest",
     "run_tests",
+    "schema_names",
     "scrub_env",
+    "sha256_fingerprint",
+    "verify_envelope",
+    "verify_fingerprinted_document",
+    "verify_manifest",
+    "verify_run_attestation",
 ]
