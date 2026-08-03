@@ -22,6 +22,7 @@ from .callgraph import CallGraph, build_multi_call_graph, module_metrics
 from .dense_semantic import dense_semantic, dense_semantic_available
 
 DEFAULT_IGNORES = {
+    ".ds_store",
     ".git",
     ".venv",
     "venv",

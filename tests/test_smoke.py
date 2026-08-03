@@ -220,10 +220,18 @@ def test_extract_system_over_real_repo():
     assert all(0.0 <= a["relevance"] <= 1.0 for a in system["artifacts"])
 
 
-def test_extract_ignores_venv_and_cache():
-    system = extract_system(".")
+def test_extract_ignores_venv_and_cache(tmp_path):
+    (tmp_path / ".venv").mkdir()
+    (tmp_path / ".venv" / "hidden.py").write_text("secret = True", encoding="utf-8")
+    (tmp_path / ".DS_Store").write_bytes(b"metadata")
+    (tmp_path / "visible.py").write_text("visible = True", encoding="utf-8")
+
+    system = extract_system(tmp_path)
     ids = {a["id"] for a in system["artifacts"]}
-    assert not any(part in ids for part in (".venv", "__pycache__", ".an-kla"))
+    topology = next(a["content"] for a in system["artifacts"] if a["id"] == "L1:topology")
+    assert "visible.py" in ids
+    assert ".venv" not in topology
+    assert ".DS_Store" not in topology
 
 
 def test_analyze_path_terminates_on_real_repo():
