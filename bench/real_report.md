@@ -14,20 +14,23 @@ Commits fijados: `markupsafe` b2e4d9c7687b, `itsdangerous` 672971d66a2e, `click`
 |---|---|---|---|---|---|---|---|
 | markupsafe | argos(lex) | 1.0 | 0.333 | 13638 | 0.07 | False | 0.160 |
 | markupsafe | argos(dense) | 0.214 | 1.0 | 13638 | 0.43 | False | 0.391 |
+| markupsafe | argos(dense,impact) | 0.214 | 1.0 | 13638 | 0.60 | False | 0.349 |
 | markupsafe | full_read | 0.103 | 1.0 | 13638 | - | - | - |
 | markupsafe | lexical_topk | 0.0 | 0.0 | 1198 | - | - | - |
 | itsdangerous | argos(lex) | 0.0 | 0.0 | 19771 | 0.00 | False | - |
 | itsdangerous | argos(dense) | 0.733 | 1.0 | 19771 | 0.80 | False | 0.325 |
+| itsdangerous | argos(dense,impact) | 0.714 | 0.909 | 15675 | 0.83 | True | 0.329 |
 | itsdangerous | full_read | 0.344 | 1.0 | 19771 | - | - | - |
 | itsdangerous | lexical_topk | 0.727 | 0.727 | 9934 | - | - | - |
 | click | argos(lex) | 0.0 | 0.0 | 132098 | 0.03 | False | 0.360 |
 | click | argos(dense) | 0.065 | 1.0 | 132098 | 1.00 | False | 0.399 |
+| click | argos(dense,impact) | 0.0 | 0.0 | 2220 | 0.83 | True | 0.500 |
 | click | full_read | 0.044 | 1.0 | 132098 | - | - | - |
 | click | lexical_topk | 0.143 | 0.143 | 12086 | - | - | - |
 
 ## Lectura
-- **Recall medio**: argos(lex) **0.111**, argos(dense) **1.000**, full_read **1.000**, lexical_topk **0.290**.
-- **Brier medio** (calibracion de confianza; solo argos emite confidence): argos(lex) **0.260**, argos(dense) **0.372**.
+- **Recall medio**: argos(lex) **0.111**, argos(dense) **1.000**, argos(dense,impact) **0.636**, full_read **1.000**, lexical_topk **0.290**.
+- **Brier medio** (calibracion de confianza; solo argos emite confidence): argos(lex) **0.260**, argos(dense) **0.372**, argos(dense,impact) **0.393**.
 
 ### Hallazgos sobre codigo real
 - **El linker denso sube el recall** (recupera aspectos semanticos como
@@ -47,6 +50,11 @@ Commits fijados: `markupsafe` b2e4d9c7687b, `itsdangerous` 672971d66a2e, `click`
   lee TODO el repo (tokens ~= full_read) cuando ningun aspecto alcanza apoyo
   productivo. El ahorro por seleccion solo aparece si `should_stop` dispara con
   apoyo productivo real (palanca: que el codigo productivo enlaces).
+- **Palanca prior de impact** (`argos(dense,impact)`, `link_impact_weight=1.0`):
+  levanta el link efectivo del codigo productivo (`sim + w*impact`) para que
+  enlace a similitud baja, donde los docs cortos ganaban. Comparar recall y
+  Brier de `argos(dense)` vs `argos(dense,impact)` mide si recupera codigo gold
+  sin inflar ruido. Es opt-in (default weight 0 -> no-op en fixtures sin impact).
 - `lexical_topk` degenera en `click` (aspectos sin overlap con el id del gold).
 
 ## Reproducibilidad

@@ -76,12 +76,14 @@ def _gold_union(gold_by_aspect: dict[str, set[str]]) -> set[str]:
     return union
 
 
-def _argos(system: dict, goal: dict, linker, link_threshold) -> tuple[set[str], int, dict]:
+def _argos(system: dict, goal: dict, linker, link_threshold, impact_weight: float = 0.0) -> tuple[set[str], int, dict]:
     g = copy.deepcopy(goal)
     g["aspect_linker"] = linker
     g["min_sources_per_aspect"] = 2
     if link_threshold is not None:
         g["link_threshold"] = link_threshold
+    if impact_weight > 0.0:
+        g["link_impact_weight"] = impact_weight
     rep = analyze_system(system, g, Budget(tokens_remaining=200000, tool_remaining=2000))
     selected = {c["evidence"] for c in rep["conclusions"]}
     return selected, rep["cost"]["observed_tokens"], rep
@@ -107,6 +109,11 @@ def run(dense: bool) -> tuple[str, dict]:
             sel_d, cost_d, rep_d = _argos(system, spec["goal"], dense_semantic, 0.60)
             p_d, r_d = _pr(sel_d, gold)
             rows.append((name, "argos(dense)", p_d, r_d, cost_d, rep_d["coverage"], rep_d["complete"], _brier(rep_d, gold_by_aspect)))
+
+            # Palanca: prior de impact (codigo > docs). Mismo linker denso + link_impact_weight=1.0.
+            sel_i, cost_i, rep_i = _argos(system, spec["goal"], dense_semantic, 0.60, impact_weight=1.0)
+            p_i, r_i = _pr(sel_i, gold)
+            rows.append((name, "argos(dense,impact)", p_i, r_i, cost_i, rep_i["coverage"], rep_i["complete"], _brier(rep_i, gold_by_aspect)))
 
         full = baselines.full_read(arts, spec["goal"])
         rows.append((name, "full_read", *_pr(full, gold), baselines.cost(arts, full), None, None, None))
@@ -145,11 +152,11 @@ def run(dense: bool) -> tuple[str, dict]:
         "",
         "## Lectura",
         f"- **Recall medio**: argos(lex) **{_avg('argos(lex)', 3)}**, "
-        + (f"argos(dense) **{_avg('argos(dense)', 3)}**, " if dense_avail else "")
+        + (f"argos(dense) **{_avg('argos(dense)', 3)}**, argos(dense,impact) **{_avg('argos(dense,impact)', 3)}**, " if dense_avail else "")
         + f"full_read **{_avg('full_read', 3)}**, lexical_topk **{_avg('lexical_topk', 3)}**.",
         f"- **Brier medio** (calibracion de confianza; solo argos emite confidence): "
         f"argos(lex) **{_avg('argos(lex)', 7)}**"
-        + (f", argos(dense) **{_avg('argos(dense)', 7)}**." if dense_avail else "."),
+        + (f", argos(dense) **{_avg('argos(dense)', 7)}**, argos(dense,impact) **{_avg('argos(dense,impact)', 7)}**." if dense_avail else "."),
         "",
         "### Hallazgos sobre codigo real",
         "- **El linker denso sube el recall** (recupera aspectos semanticos como",
@@ -169,6 +176,11 @@ def run(dense: bool) -> tuple[str, dict]:
         "  lee TODO el repo (tokens ~= full_read) cuando ningun aspecto alcanza apoyo",
         "  productivo. El ahorro por seleccion solo aparece si `should_stop` dispara con",
         "  apoyo productivo real (palanca: que el codigo productivo enlaces).",
+        "- **Palanca prior de impact** (`argos(dense,impact)`, `link_impact_weight=1.0`):",
+        "  levanta el link efectivo del codigo productivo (`sim + w*impact`) para que",
+        "  enlace a similitud baja, donde los docs cortos ganaban. Comparar recall y",
+        "  Brier de `argos(dense)` vs `argos(dense,impact)` mide si recupera codigo gold",
+        "  sin inflar ruido. Es opt-in (default weight 0 -> no-op en fixtures sin impact).",
         "- `lexical_topk` degenera en `click` (aspectos sin overlap con el id del gold).",
         "",
         "## Reproducibilidad",

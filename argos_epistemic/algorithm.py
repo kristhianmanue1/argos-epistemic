@@ -357,6 +357,13 @@ def link_aspects(
     Honors an explicit ``artifact["supports"] = [{"aspect": ..., "strength": ...}]``
     declaration; otherwise infers linkage via ``linker(content, aspect)`` above a
     threshold (so unrelated evidence contributes zero).
+
+    Impact prior (``goal["link_impact_weight"]``, default 0 = off): ``S_semantic`` is
+    non-faithful (readme.md §6.1) and, on real repos, short topically-saturated docs
+    beat large diluted code files on cosine, so documentation over-links and code never
+    links. Lifting the effective link by ``w * Impact(x)`` lets production code
+    (``impact > 0``) link at lower semantic similarity, restoring recall without
+    fitting theta to gold. No-op when impact is absent (fixtures) or the weight is 0.
     """
     if artifact is None:
         return {}
@@ -374,11 +381,17 @@ def link_aspects(
 
         threshold = default_link_threshold(linker)
     content = str(artifact.get("content", "")) + " " + str(artifact.get("id", ""))
-    return {
-        aspect: strength
-        for aspect in aspect_names
-        if (strength := linker(content, aspect)) >= threshold
-    }
+    impact_w = float(goal.get("link_impact_weight", 0.0) or 0.0)
+    impact = float(artifact.get("impact", 0.0) or 0.0) if impact_w > 0.0 else 0.0
+    lift = impact_w * impact
+    linked: dict[str, float] = {}
+    for aspect in aspect_names:
+        strength = linker(content, aspect)
+        if lift > 0.0 and impact > 0.0:
+            strength = min(1.0, strength + lift)
+        if strength >= threshold:
+            linked[aspect] = strength
+    return linked
 
 
 def derive_propositions(

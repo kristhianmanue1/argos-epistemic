@@ -561,6 +561,29 @@ def test_h6_compression_digest_is_stable_sha256():
     assert e1.digest == e2.digest  # stable (not hash()-randomized)
 
 
+def test_link_impact_prior_lifts_production_code_above_threshold():
+    # Lever del item "linker sobre-enlaza docs": S_semantic sola favorece docs
+    # cortos sobre codigo diluido. El prior de impact (link_impact_weight) levanta
+    # el link efectivo del codigo productivo sin tocar a los docs (impact=0).
+    from argos_epistemic.algorithm import link_aspects
+
+    def low(content, aspect):  # sim baja uniforme (codigo y doc por igual)
+        return 0.3
+
+    code = {"id": "core.py", "content": "def run(): pass", "impact": 0.5}
+    doc = {"id": "README.md", "content": "all about commands", "impact": 0.0}
+    goal = {"aspects": ["command"], "link_threshold": 0.6}
+
+    # sin prior: ninguno enlaza (0.3 < 0.6)
+    assert link_aspects(code, ["command"], goal, low) == {}
+    assert link_aspects(doc, ["command"], goal, low) == {}
+
+    # con prior w=1.0: code 0.3+0.5=0.8 enlaza; doc 0.3+0=0.3 no
+    goal_lift = {"aspects": ["command"], "link_threshold": 0.6, "link_impact_weight": 1.0}
+    assert link_aspects(code, ["command"], goal_lift, low)["command"] >= 0.6
+    assert link_aspects(doc, ["command"], goal_lift, low) == {}
+
+
 def test_l5_logs_artifact(tmp_path):
     from argos_epistemic import logs_artifact
 
