@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "argos/evaluation-envelope-v1",
+  "$comment": "argos/canonical-json-v1 rejects floating-point values; use decimal strings or scaled integers",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "canonicalization",
+    "evaluation_id",
+    "status",
+    "manifest_fingerprint",
+    "completion",
+    "links",
+    "fingerprint"
+  ],
+  "properties": {
+    "schema": {"const": "argos/evaluation-envelope-v1"},
+    "canonicalization": {"const": "argos/canonical-json-v1"},
+    "evaluation_id": {"type": "string", "pattern": "^eval:sha256:[0-9a-f]{64}$"},
+    "status": {"enum": ["pending", "running", "partial", "complete", "failed", "cancelled"]},
+    "manifest_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "completion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["procedure_complete", "reason_codes"],
+      "properties": {
+        "procedure_complete": {"type": "boolean"},
+        "reason_codes": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "links": {"type": "object", "additionalProperties": {"type": "string"}},
+    "usage_ref": {"type": "string"},
+    "fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}

@@ -30,8 +30,11 @@ semantic = [
     "sentence-transformers>=2.7",
 ]
 
-[tool.setuptools]
-packages = ["argos_epistemic"]
+[tool.setuptools.packages.find]
+include = ["argos_epistemic*"]
+
+[tool.setuptools.package-data]
+"argos_epistemic.schemas" = ["*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "argos/evaluation-manifest-v1",
+  "$comment": "argos/canonical-json-v1 rejects floating-point values; use decimal strings or scaled integers",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "canonicalization",
+    "target",
+    "evaluator",
+    "goal",
+    "independence_class",
+    "configuration",
+    "configuration_fingerprint",
+    "degradations",
+    "fingerprint"
+  ],
+  "properties": {
+    "schema": {"const": "argos/evaluation-manifest-v1"},
+    "canonicalization": {"const": "argos/canonical-json-v1"},
+    "target": {"type": "object"},
+    "evaluator": {"type": "object"},
+    "goal": {"type": "object"},
+    "independence_class": {
+      "enum": ["independent", "operational_dependency", "self_study", "shared_authority", "unknown"]
+    },
+    "configuration": {"type": "object"},
+    "configuration_fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "degradations": {"type": "array", "items": {"type": "string"}},
+    "fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}
