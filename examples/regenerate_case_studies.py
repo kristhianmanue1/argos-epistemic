@@ -200,6 +200,7 @@ def _argos_md(profile: str = "char-ngram-v1") -> str:
     bh = system.get("behavior", {})
     top = ", ".join(f"{n['id'].split('::')[-1]} ({n['impact']})" for n in cg.get("top_impact", [])[:4])
     raw = json.dumps({k: report[k] for k in ("evidence_count", "proposition_count", "coverage", "residual_risk", "complete")})
+    relation_counts = Counter(item["relation"] for item in report["claims"])
     lines = [
         "# Caso de estudio: argos-epistemic (autoestudio)",
         "",
@@ -230,6 +231,7 @@ def _argos_md(profile: str = "char-ngram-v1") -> str:
         "```text",
         f"evidence_count  : {report['evidence_count']}",
         f"proposition_count: {report['proposition_count']}",
+        f"relations        : {dict(sorted(relation_counts.items()))}",
         f"conflict_count  : {report['conflict_count']}",
         f"coverage        : {report['coverage']}",
         f"residual_risk   : {report['residual_risk']}",
@@ -245,7 +247,8 @@ def _argos_md(profile: str = "char-ngram-v1") -> str:
         "",
         "El bucle presupuestado selecciona evidencia por utilidad (valor/costo) y "
         "detiene al alcanzar `coverage ≥ θ` y `risk ≤ ρ`. La cobertura es por "  # noqa: RUF001
-        "aspecto sobre proposiciones; la evidencia irrelevante aporta cero. El "
+        "aspecto sobre relaciones `supports`; `mentions` orienta recuperación "
+        "pero aporta cero cobertura. El "
         "costo **observado** (contenido real leído) se contabiliza contra el "
         "presupuesto y se compara con el estimado (stat).",
         "",

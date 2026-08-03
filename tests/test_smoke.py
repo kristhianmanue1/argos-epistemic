@@ -87,7 +87,7 @@ def test_detects_conflict_between_doc_and_code():
             {"id": "doc_f", "content": "feature on", "location": "f_X", "level": 0, "relevance": 1.0, "kind": "doc",
              "supports": [{"aspect": "f_X"}]},
             {"id": "code_f", "content": "feature off", "location": "f_X", "level": 4, "relevance": 1.0, "kind": "code",
-             "supports": [{"aspect": "f_X"}]},
+             "refutes": [{"aspect": "f_X"}]},
         ],
     }
     goal = {"name": "g", "aspects": ["f_X"], "theta_coverage": 2.0, "rho_risk": 0.0}
@@ -100,7 +100,7 @@ def test_detects_conflict_between_doc_and_code():
     assert conflict["resolution_status"] == "open"
 
 
-def test_conflict_tolerates_rewording_but_flags_divergence():
+def test_same_polarity_divergence_is_not_a_conflict():
     goal = {"name": "g", "aspects": ["auth"], "theta_coverage": 2.0, "rho_risk": 0.0}
     same = {
         "name": "s",
@@ -123,7 +123,7 @@ def test_conflict_tolerates_rewording_but_flags_divergence():
     r_same = analyze_system(same, goal, Budget(tokens_remaining=10000, tool_remaining=20))
     r_div = analyze_system(divergent, goal, Budget(tokens_remaining=10000, tool_remaining=20))
     assert r_same["conflict_count"] == 0
-    assert r_div["conflict_count"] >= 1
+    assert r_div["conflict_count"] == 0
 
 
 def test_q_g_invariant_holds_under_compression_and_breaks_on_eviction():
@@ -310,11 +310,10 @@ def test_historical_verification_confidence():
         budget=Budget(tokens_remaining=500000, tool_remaining=5000),
         run_history=True,
     )
-    assert "history" in report["evidence_kinds"] or any(
-        c["claim"].startswith("history@") for c in report["conclusions"]
-    )
-    hist = [c for c in report["conclusions"] if c["claim"].startswith("history@")]
-    assert hist and hist[0]["confidence"] == 0.8 and hist[0]["status"] == "supported"
+    assert "history" in report["evidence_kinds"]
+    hist = [c for c in report["conclusions"] if c["method"] == "historical"]
+    assert hist and hist[0]["confidence"] == 0.8 and hist[0]["status"] == "unknown"
+    assert hist[0]["relation"] == "mentions"
 
 
 def test_scrub_env_drops_credentials():
@@ -421,7 +420,7 @@ def test_h7_conflicts_deduplicated_across_iterations():
             {"id": "a", "content": "feature on", "level": 0, "relevance": 1.0, "kind": "doc",
              "supports": [{"aspect": "f"}]},
             {"id": "b", "content": "feature off", "level": 0, "relevance": 1.0, "kind": "doc",
-             "supports": [{"aspect": "f"}]},
+             "refutes": [{"aspect": "f"}]},
         ],
     }
     report = analyze_system(system, {"name": "g", "aspects": ["f"], "theta_coverage": 2.0, "rho_risk": 0.0},
@@ -429,7 +428,7 @@ def test_h7_conflicts_deduplicated_across_iterations():
     assert report["conflict_count"] == 1  # dedup: one conflict, not accumulated
 
 
-def test_h7_conflict_is_aspect_based_not_location_based():
+def test_h7_same_aspect_textual_diversity_is_not_a_conflict():
     system = {
         "name": "s",
         "artifacts": [
@@ -441,7 +440,7 @@ def test_h7_conflict_is_aspect_based_not_location_based():
     }
     report = analyze_system(system, {"name": "g", "aspects": ["f"], "theta_coverage": 2.0, "rho_risk": 0.0},
                             Budget(tokens_remaining=10000, tool_remaining=20))
-    assert report["conflict_count"] >= 1  # different locations, same aspect -> still a conflict
+    assert report["conflict_count"] == 0
 
 
 def test_h1_irrelevant_evidence_does_not_raise_coverage():
@@ -826,7 +825,7 @@ def test_analyze_path_with_dynamic_includes_run(tmp_path):
     )
     kinds = report["evidence_kinds"]
     assert "test-run" in kinds
-    dyn = [c for c in report["conclusions"] if c["claim"].startswith("test-run@")]
+    dyn = [c for c in report["conclusions"] if c["method"] == "dynamic"]
     assert dyn and dyn[0]["status"] == "supported" and dyn[0]["confidence"] >= 0.9
 
 

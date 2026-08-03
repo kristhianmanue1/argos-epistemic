@@ -18,6 +18,7 @@ from .algorithm import (
 )
 from .behavior import FuncBehavior, behavior_summary, extract_behavior
 from .bundle import (
+    CLAIM_SCHEMA,
     ENVELOPE_SCHEMA,
     INVENTORY_SCHEMA,
     MANIFEST_SCHEMA,
@@ -28,6 +29,7 @@ from .bundle import (
     build_run_attestation,
     load_schema,
     schema_names,
+    verify_claim_record,
     verify_envelope,
     verify_inventory,
     verify_manifest,
@@ -68,6 +70,7 @@ except Exception:  # pragma: no cover - optional heavy dep absent at import time
 
 __all__ = [
     "CANONICALIZATION_PROFILE",
+    "CLAIM_SCHEMA",
     "ENVELOPE_SCHEMA",
     "INVENTORY_SCHEMA",
     "MANIFEST_SCHEMA",
@@ -126,6 +129,7 @@ __all__ = [
     "schema_names",
     "scrub_env",
     "sha256_fingerprint",
+    "verify_claim_record",
     "verify_envelope",
     "verify_fingerprinted_document",
     "verify_inventory",

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "argos/claim-record-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "canonicalization",
+    "claim_id",
+    "claim_text",
+    "aspect",
+    "relation",
+    "scope",
+    "evidence_id",
+    "confidence",
+    "strength",
+    "authority_class",
+    "method",
+    "timestamp",
+    "extraction_profile",
+    "fingerprint"
+  ],
+  "properties": {
+    "schema": {"const": "argos/claim-record-v1"},
+    "canonicalization": {"const": "argos/canonical-json-v1"},
+    "claim_id": {"type": "string", "pattern": "^claim:sha256:[0-9a-f]{64}$"},
+    "claim_text": {"type": "string"},
+    "aspect": {"type": "string"},
+    "relation": {"enum": ["mentions", "supports", "refutes", "tests", "implements", "configures"]},
+    "scope": {"type": "string"},
+    "evidence_id": {"type": "string"},
+    "confidence": {"type": "string"},
+    "strength": {"type": "string"},
+    "authority_class": {"type": "string"},
+    "method": {"type": "string"},
+    "timestamp": {"type": "integer"},
+    "extraction_profile": {"const": "argos/typed-proposition-v1"},
+    "fingerprint": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+  }
+}
