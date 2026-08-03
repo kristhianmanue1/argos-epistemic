@@ -18,6 +18,7 @@ dev = [
     "an-kla-memory @ git+https://github.com/kristhianmanue1/an-kla-memory.git@67f6ee486a4235e43ca16d8f701eb8722aaad68a",
     "ruff>=0.6",
     "mypy>=1.11",
+    "setuptools>=68",
     "wheel>=0.43",
 ]
 languages = [

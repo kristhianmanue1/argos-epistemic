@@ -21,7 +21,7 @@ residual_risk   : 0.175
 complete        : False
 levels_covered  : [0, 1, 2, 3, 4, 5]
 aspect_scores   : {'algorithm': 0.8333, 'config': 1.0, 'test': 0.0, 'doc': 0.5}
-cost            : estimated=42646 observed=42646
+cost            : estimated=42656 observed=42656
 ```
 
 ## Interpretación
