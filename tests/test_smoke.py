@@ -572,6 +572,52 @@ def test_l5_logs_artifact(tmp_path):
     assert art["kind"] == "logs"
 
 
+def test_l5_coverage_artifact_parses_cobertura(tmp_path):
+    from argos_epistemic import coverage_artifact, coverage_summary
+
+    assert coverage_summary(tmp_path) is None  # sin coverage.xml -> None
+    xml = (
+        '<?xml version="1.0" ?>\n<coverage version="7.0" timestamp="0" line-rate="0.6">\n'
+        "  <packages><package><classes>\n"
+        '    <class filename="src/pkg/a.py" line-rate="0.9"><lines/></class>\n'
+        '    <class filename="src/pkg/b.py" line-rate="0.2"><lines/></class>\n'
+        "  </classes></package></packages>\n</coverage>\n"
+    )
+    (tmp_path / "coverage.xml").write_text(xml, encoding="utf-8")
+    art = coverage_artifact(tmp_path)
+    assert art is not None and art["kind"] == "coverage"
+    assert art["verification_method"] == "historical"
+    run = art["run"]
+    assert run["line_rate"] == 0.6
+    assert run["files"] == 2
+    assert run["covered_files"] == 1  # sólo a.py >= 0.8
+    assert run["status"] == "supported"  # total 0.6 >= 0.5
+    assert "src/pkg/a.py" in run["per_file"]
+
+
+def test_l5_profile_artifact_reads_cprofile_dump(tmp_path):
+    import cProfile
+
+    from argos_epistemic import profile_artifact, profile_summary
+
+    assert profile_summary(tmp_path) is None  # sin *.prof -> None
+
+    def workload():
+        return sum(range(1000))
+
+    prof = cProfile.Profile()
+    prof.enable()
+    workload()
+    prof.disable()
+    prof.dump_stats(str(tmp_path / "out.prof"))
+    art = profile_artifact(tmp_path)
+    assert art is not None and art["kind"] == "profile"
+    assert art["verification_method"] == "historical"
+    run = art["run"]
+    assert run["total_tt"] is not None
+    assert any("workload" in e["function"] for e in run["hotpaths"])
+
+
 def test_l3_tree_sitter_javascript_when_available(tmp_path):
     import importlib
 
