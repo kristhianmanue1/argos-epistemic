@@ -310,12 +310,15 @@ def extract_system(
     root: Path | str,
     goal: dict[str, Any] | None = None,
     semantic_fn=None,
+    extra_ignores: set[str] | None = None,
 ) -> dict[str, Any]:
     goal = goal or {}
     root = Path(root)
     if not root.is_dir():
         raise NotADirectoryError(root)
     ignores = set(DEFAULT_IGNORES)
+    if extra_ignores:
+        ignores |= set(extra_ignores)
     files = _walk(root, ignores)
     cg = build_multi_call_graph(root, files)
     metrics = module_metrics(cg)

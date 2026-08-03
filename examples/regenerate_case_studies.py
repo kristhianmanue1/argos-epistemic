@@ -126,15 +126,26 @@ def _by_kind(system):
     return dict(Counter(a["kind"] for a in system["artifacts"]))
 
 
-def _run(root, goal):
+def _run(root, goal, extra_ignores=None):
     linker = goal.get("aspect_linker") or lexical_semantic
-    system = extract_system(root, goal=goal, semantic_fn=linker)
+    system = extract_system(root, goal=goal, semantic_fn=linker, extra_ignores=extra_ignores)
     report = analyze_system(system, goal, Budget(tokens_remaining=200000, tool_remaining=2000))
     return system, report
 
 
+# El autoestudio de argos NO debe analizar sus propios .md generados (case studies
+# + respuestas): case-study-argos.md embebe el número de `cost` y realimenta el
+# cálculo -> oscilación de 1 token (auto-referencia epistémica). Son salida, no fuente.
+_SELF_STUDY_IGNORES = {
+    "case-study-argos.md",
+    "case-study-markupsafe.md",
+    "case-study-an-kla-memory.md",
+    "an-kla-memory-response-to-issue10.md",
+}
+
+
 def _argos_md() -> str:
-    system, report = _run(ROOT, ARGOS_GOAL)
+    system, report = _run(ROOT, ARGOS_GOAL, extra_ignores=_SELF_STUDY_IGNORES)
     cg = system.get("call_graph", {})
     bh = system.get("behavior", {})
     top = ", ".join(f"{n['id'].split('::')[-1]} ({n['impact']})" for n in cg.get("top_impact", [])[:4])
