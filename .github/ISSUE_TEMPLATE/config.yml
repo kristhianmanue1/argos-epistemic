@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Reportar una vulnerabilidad
+    url: https://github.com/kristhianmanue1/argos-epistemic/security/advisories/new
+    about: Usa un reporte privado para problemas de seguridad.

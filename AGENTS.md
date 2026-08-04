@@ -12,7 +12,7 @@ La escritura nueva usa exclusivamente `plan-write` -> `commit-write-plan`.
 ## Naturaleza del proyecto
 
 `argos` formaliza un Modelo Epistémico Unificado para el análisis de software por
-IA (ver `readme.md`). Es principalmente documental; `argos_epistemic/` contiene una
+IA (ver `MODEL.md`). `README.md` presenta el producto y `argos_epistemic/` contiene una
 implementación de referencia mínima y ejecutable del algoritmo de la sección 22.
 
 ## Entorno
@@ -34,13 +34,13 @@ implementación de referencia mínima y ejecutable del algoritmo de la sección 
 
 ## Convenciones
 
-- Las fórmulas matemáticas de `readme.md` usan `$$ ... $$` (display) y
+- Las fórmulas matemáticas de `MODEL.md` usan `$$ ... $$` (display) y
   `$ ... $` (inline). La sección 22 es pseudocódigo (` ```text `); la
   implementación ejecutable vive en `argos_epistemic/algorithm.py`.
 - El bloque gestionado por AN-KLA (entre sus marcadores de inicio y fin) y el
   archivo `AN-KLA.md` no deben editarse manualmente.
 - Sin comentarios en código salvo solicitud expresa; documenta intención en
-  `readme.md` o en docstrings breves.
+  `MODEL.md`, `ARCHITECTURE.md` o en docstrings breves.
 - Hay CI (`.github/workflows/ci.yml`) con 7 gates: ruff, mypy, pytest, demo,
   case-studies, benchmark y preflight AN-KLA. De todos modos ejecuta `pytest` y
   el preflight localmente antes de cerrar una tarea material.

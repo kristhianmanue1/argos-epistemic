@@ -1,16 +1,31 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77.0.3"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "argos-epistemic"
 version = "0.2.0.dev0"
 description = "Implementacion de referencia del Modelo Epistemico Unificado (argos)"
-readme = "readme.md"
+readme = "README.md"
 requires-python = ">=3.12"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 authors = [{ name = "KRISTHIAN MANUEL" }]
+keywords = ["artificial-intelligence", "software-analysis", "evidence", "agents"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Quality Assurance",
+]
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/kristhianmanue1/argos-epistemic"
+Repository = "https://github.com/kristhianmanue1/argos-epistemic.git"
+Issues = "https://github.com/kristhianmanue1/argos-epistemic/issues"
+Changelog = "https://github.com/kristhianmanue1/argos-epistemic/releases"
 
 [project.optional-dependencies]
 dev = [
@@ -18,7 +33,7 @@ dev = [
     "an-kla-memory @ git+https://github.com/kristhianmanue1/an-kla-memory.git@67f6ee486a4235e43ca16d8f701eb8722aaad68a",
     "ruff>=0.6",
     "mypy>=1.11",
-    "setuptools>=68",
+    "setuptools>=77.0.3",
     "wheel>=0.43",
 ]
 languages = [
