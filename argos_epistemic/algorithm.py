@@ -86,7 +86,7 @@ EVIDENCE_TOKENS_PER_SLOT = 1024
 
 
 def capacity_for_budget(budget: Budget) -> int:
-    """Adaptive compression capacity (MODEL.md §6): the store keeps at most
+    """Adaptive compression capacity (MODEL.md §8): the store keeps at most
     ``capacity`` items uncompressed, derived from the remaining token budget.
     As ``budget.tokens_remaining`` shrinks during a run, capacity shrinks and
     compression becomes stricter. Floor is ``EVIDENCE_CAPACITY``.

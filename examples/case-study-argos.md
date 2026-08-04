@@ -22,8 +22,8 @@ residual_risk   : 0.7
 complete        : False
 levels_covered  : [0, 1, 2, 3, 4, 5]
 aspect_scores   : {'algorithm': 0.0, 'config': 0.0, 'test': 0.0, 'doc': 0.0}
-cost            : estimated=53169 observed=53169
-inventory       : {'profile': 'legacy-first-400-v1', 'files_discovered': 59, 'files_eligible': 53, 'files_selected': 53, 'files_omitted_by_cap': 0, 'read_truncations': 9, 'bytes_discovered': 348069, 'bytes_read': 206142, 'degradations': ['content_truncated'], 'fingerprint': 'sha256:eb9f9a6f640c329dd975fb6caf9c6593cac11598f7cbe2791855b2ca5f7f9206'}
+cost            : estimated=53248 observed=53248
+inventory       : {'profile': 'legacy-first-400-v1', 'files_discovered': 59, 'files_eligible': 53, 'files_selected': 53, 'files_omitted_by_cap': 0, 'read_truncations': 9, 'bytes_discovered': 348630, 'bytes_read': 206461, 'degradations': ['content_truncated'], 'fingerprint': 'sha256:4c5e3cf7f5b68f4aa6419669f7099171aaafb617417c6b56fa97aa0c0ffa3eb8'}
 completion      : {'procedure_complete': False, 'thresholds_met': False, 'degradations': ['content_truncated'], 'blocking_degradations': ['content_truncated'], 'reason_codes': ['threshold_not_met', 'insufficient_sources', 'missing_production_evidence', 'content_truncated', 'no_eligible_actions'], 'termination_reason': 'no_eligible_actions', 'next_actions': [{'action': 'increase_read_limit', 'reason': 'content_truncated', 'authorization_required': True}]}
 ```
 
