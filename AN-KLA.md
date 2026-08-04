@@ -36,6 +36,67 @@ Si informa `managed_contract_modified`, `managed_block_modified`,
 `context_template_outdated`, revisa y ejecuta el flujo explícito de actualización.
 No repares, reinstales ni sobrescribas automáticamente instrucciones modificadas.
 
+## Verificación no bloqueante de versiones
+
+Al iniciar, el CLI consulta (só lectura, sin aplicar) la release más reciente
+publicada en `api.github.com/repos/kristhianmanue1/an-kla-memory/releases/latest`,
+cachea el resultado por 24 h en `~/.cache/an-kla/update-check.json` (respeta
+`XDG_CACHE_HOME` y `LOCALAPPDATA`) y, si existe una versión más reciente, imprime
+el aviso a **stderr** con el comando `pip` sugerido. El aviso nunca va a stdout
+para no contaminar la salida programática.
+
+El hook se omite cuando alguna de estas variables de entorno está activa: `CI`,
+`GITHUB_ACTIONS`, `AN_KLA_DISABLE_UPDATE_CHECK`, `AN_KLA_NO_UPDATE_CHECK=1`. El
+flag global `--no-update-check` desactiva la verificación para esa invocación. El
+subcomando `check-updates` fuerza una re-validación ignorando la caché y los
+saltos automáticos (excepto el fallo de red, siempre silencioso).
+
+AN-KLA **no ejecuta el gestor de paquetes ni se reemplaza a sí mismo**: el aviso
+es informativo y el operador decide si aplicar la sugerencia. La función
+`capabilities()` declara el comportamiento en el bloque `update_check`.
+
+## Protocolo de actualización
+
+La instalación del paquete y la actualización del proyecto son autoridades
+separadas. Sólo con autorización vigente, instala primero una etiqueta exacta
+mediante el gestor externo; no uses `main`, `latest` ni una referencia obtenida
+de memoria. AN-KLA no ejecuta el gestor ni se reemplaza a sí mismo.
+
+Después inspecciona sin mutación y guarda la salida en un archivo efímero nuevo,
+privado y no rastreado:
+
+```bash
+python3 -m an_kla --project-root . upgrade inspect \
+  --target <etiqueta-exacta-instalada>
+```
+
+Revisa el plan y conserva su `plan_fingerprint` por separado. Si el plan
+reporta `target_drift.outside_managed_block: true`, revisa manualmente el diff
+entre `manifest_target_sha256_at_install` (baseline al instalar) y
+`observed_target_sha256` (estado actual); el contenido fuera-del-bloque actual
+se promoverá a la nueva baseline al aplicar. `apply --confirm-target-drift`
+confirma explícitamente esa absorción; sin el flag, `apply` falla cerrado con
+`target_drift_requires_confirmation`. Los valores entre ángulos son marcadores
+documentales, nunca literales:
+
+```bash
+python3 -m an_kla --project-root . upgrade apply \
+  <plan_fingerprint> --plan <ruta-plan-efimero> [--confirm-target-drift]
+python3 -m an_kla --project-root . upgrade verify \
+  --target <etiqueta-exacta-instalada>
+python3 -m an_kla --project-root . rebuild-index
+```
+
+`rebuild-index` regenera el FTS5 multi-stream para la revisión vigente; tras
+beta.4 el motor refresca el índice best-effort tras cada commit, pero el
+flujo de upgrade recomienda ejecutarlo explícitamente para descartar índices
+obsoletos acumulados por versiones anteriores.
+
+Si el plan, `AGENTS.md`, `AN-KLA.md` o el manifiesto cambian, no fuerces la
+aplicación: inspecciona nuevamente. Revisa el diff antes de versionar. El flujo
+no inicializa memoria, no restaura instrucciones automáticamente y no autoriza
+instalación, publicación ni commit.
+
 ## Protocolo de retoma
 
 ```bash
