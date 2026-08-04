@@ -4,7 +4,7 @@ Produce un ``system`` consumible por ``analyze_system``. Integra intención
 (L0), topología (L1), entorno reproducible (L2), grafo de llamadas enchufable
 (L3), comportamiento estático (L4) y evidencia histórica o dinámica (L5).
 ``Impact`` y ``Centrality`` se computan cuando existe un extractor L3 para el
-lenguaje observado (ver readme.md §6.1).
+lenguaje observado (ver MODEL.md §6.1).
 
 La ``relevance`` de cada artefacto es la aproximacion publica de ``R(x|G)``:
 heuristica por nombre/extension condicionada al objetivo ``G``.
@@ -80,7 +80,7 @@ L2_SUFFIXES = (".toml", ".cfg", ".ini", ".yml", ".yaml", ".lock")
 _READ_LIMIT = 8192
 MAX_CODE_ARTIFACTS = 400
 
-# Tasas de decaimiento por nivel (readme.md §14): λ0 < λ1 < λ2 ≈ λ4 < λ3 < λ5.
+# Tasas de decaimiento por nivel (MODEL.md §14): λ0 < λ1 < λ2 ≈ λ4 < λ3 < λ5.
 # Tasas diarias: L0 (docs) decae más lento, L5 (runtime/logs) más rápido.
 FRESHNESS_LAMBDA = {
     0: 1.0 / 365,
@@ -93,7 +93,7 @@ FRESHNESS_LAMBDA = {
 
 
 def freshness(level: int, t_x: float, t_now: float) -> float:
-    """Vigencia temporal de la evidencia (readme.md §14): ``e^{-λ_n(t - t_x)}``.
+    """Vigencia temporal de la evidencia (MODEL.md §14): ``e^{-λ_n(t - t_x)}``.
 
     Devuelve 1.0 (neutral, sin penalización) cuando los timestamps no están
     disponibles o la evidencia es futura, de modo que fixtures sintéticos sin
@@ -110,7 +110,10 @@ def freshness(level: int, t_x: float, t_now: float) -> float:
 def _walk(root: Path, ignores: set[str]) -> list[Path]:
     out: list[Path] = []
     for path in sorted(root.rglob("*")):
-        if any(part.lower() in ignores for part in path.relative_to(root).parts):
+        rel_parts = path.relative_to(root).parts
+        if any(part.lower() in ignores for part in rel_parts):
+            continue
+        if any(part.lower().endswith(".egg-info") for part in rel_parts):
             continue
         if path.is_file():
             out.append(path)
@@ -169,7 +172,7 @@ def _tokens(text: str) -> set[str]:
 def lexical_semantic(artifact_text: str, goal_text: str) -> float:
     """Default ``S_semantic`` surrogate: Jaccard over token sets.
 
-    Declared non-faithful (readme.md §6.1): it measures lexical overlap, not
+    Declared non-faithful (MODEL.md §6.1): it measures lexical overlap, not
     semantic similarity. Inject an embedding/LLM-based callable for fidelity.
     """
     a, b = _tokens(artifact_text), _tokens(goal_text)
@@ -257,7 +260,7 @@ def _blend_relevance(
     """Relevance blending: lexical + S_semantic + tool-measured L3 + Freshness.
 
     Pesos: lexical 0.40, S_semantic 0.18, impact 0.18, centrality 0.12,
-    freshness 0.12 (readme.md §6 + §14). ``S_semantic`` usa ``semantic_fn``
+    freshness 0.12 (MODEL.md §6 + §14). ``S_semantic`` usa ``semantic_fn``
     (surrogate ``lexical_semantic`` por defecto, no fiel según §6.1);
     ``freshness`` es ``e^{-λ_n(t-t_x)}`` (§14, computable vía mtime/git).
     Devuelve (relevance, s_semantic, impact, centrality, freshness).

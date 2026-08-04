@@ -1,0 +1,31 @@
+name: Propuesta de mejora
+description: Propón una capacidad o cambio de contrato
+title: "[Propuesta]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problema del consumidor
+      description: Describe qué agente o flujo necesita resolverlo.
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Resultado verificable
+      description: Explica cómo sabremos que aporta valor.
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Contratos y compatibilidad
+      description: Indica schemas, autoridad, presupuesto o transporte afectados.
+    validations:
+      required: true
+  - type: textarea
+    id: exclusions
+    attributes:
+      label: Fuera de alcance
+      description: Qué no hace falta construir todavía.

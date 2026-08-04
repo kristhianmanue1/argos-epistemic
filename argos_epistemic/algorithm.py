@@ -1,7 +1,7 @@
 """Implementacion de referencia ejecutable del algoritmo de la seccion 22.
 
 Es una version minima, funcional y terminante del esqueleto declarativo de
-``readme.md``. No es una implementacion optimizada del modelo completo: expone
+``MODEL.md``. No es una implementacion optimizada del modelo completo: expone
 los tipos y el flujo principal para que puedan ejecutarse pruebas de humo y
 verificar que el algoritmo termina, decide y sintetiza un reporte trazable.
 """
@@ -86,7 +86,7 @@ EVIDENCE_TOKENS_PER_SLOT = 1024
 
 
 def capacity_for_budget(budget: Budget) -> int:
-    """Adaptive compression capacity (readme.md §6): the store keeps at most
+    """Adaptive compression capacity (MODEL.md §6): the store keeps at most
     ``capacity`` items uncompressed, derived from the remaining token budget.
     As ``budget.tokens_remaining`` shrinks during a run, capacity shrinks and
     compression becomes stricter. Floor is ``EVIDENCE_CAPACITY``.
@@ -99,7 +99,7 @@ def _tokens(content: Any) -> frozenset[str]:
     """Lexical surrogate for a position: lowercase alphanumeric token set.
 
     True semantic identity needs embeddings/LLM (``S_semantic``, LLM-approximated
-    per readme.md §6.1). This frozenset is the deterministic default; a richer
+    per MODEL.md §6.1). This frozenset is the deterministic default; a richer
     ``similarity`` callable can be injected into ``detect_conflicts``.
     """
     import re
@@ -285,7 +285,7 @@ def select_non_functional_extractors(goal: dict[str, Any]) -> list[str]:
 class Proposition:
     """An aspect-linked claim derived from verified evidence.
 
-    This is the keystone layer (readme.md §7, §12, §23): evidence becomes a
+    This is the keystone layer (MODEL.md §7, §12, §23): evidence becomes a
     proposition about a *specific* aspect of the goal, with polarity and
     confidence. Coverage is computed per aspect over propositions, so evidence
     unrelated to an aspect contributes exactly zero. Conflicts are detected
@@ -368,7 +368,7 @@ def link_aspects(
     threshold (so unrelated evidence contributes zero).
 
     Impact prior (``goal["link_impact_weight"]``, default 0 = off): ``S_semantic`` is
-    non-faithful (readme.md §6.1) and, on real repos, short topically-saturated docs
+    non-faithful (MODEL.md §6.1) and, on real repos, short topically-saturated docs
     beat large diluted code files on cosine, so documentation over-links and code never
     links. Lifting the effective link by ``w * Impact(x)`` lets production code
     (``impact > 0``) link at lower semantic similarity, restoring recall without
@@ -543,7 +543,7 @@ def _claim_record(proposition: Proposition) -> dict[str, Any]:
 
 
 def aspect_score(props: list[Proposition], corroboration: float = CORROBORATION) -> float:
-    """Coverage of one aspect (readme.md §12), calibrated to reward corroboration.
+    """Coverage of one aspect (MODEL.md §12), calibrated to reward corroboration.
 
     ``score = clamp01( Σ_pos polarity·conf / corroboration )``: a single source
     does NOT saturate the aspect (it scores conf/corroboration, e.g. 0.9/1.8 =
@@ -564,7 +564,7 @@ def compute_coverage(
     aspects: list[dict[str, Any]],
     corroboration: float = CORROBORATION,
 ) -> float:
-    """Per-aspect coverage (readme.md §12): Cov = Σ w_i · aspect_score(t_i).
+    """Per-aspect coverage (MODEL.md §12): Cov = Σ w_i · aspect_score(t_i).
 
     aspect_score rewards corroboration (see ``aspect_score``); aspects with no
     supporting proposition score 0 (evidence irrelevant to the goal contributes
@@ -646,7 +646,7 @@ def min_sources_met(
 
 
 def system_has_production(system: dict[str, Any]) -> bool:
-    """Whether the system carries L3 call-graph data (readme.md §6.1, Impact).
+    """Whether the system carries L3 call-graph data (MODEL.md §6.1, Impact).
 
     Production code artifacts expose ``impact > 0`` from the call graph. Fixtures
     and systems analyzed without a call graph have no such field, so the
@@ -667,7 +667,7 @@ def production_sources_met(
 
     Anti-overclaim sibling of ``min_sources_met``: it is not enough to amass
     peripheral evidence (docs, examples, config, typing stubs), because such
-    artifacts talk *about* an aspect without being the implementation (readme.md
+    artifacts talk *about* an aspect without being the implementation (MODEL.md
     §4 levels). When L3 data is available, an aspect counts as satisfied for
     ``complete``/``should_stop`` only if at least one positive proposition rests
     on a production (``impact > 0``) artifact. This kills the overclaim where the
@@ -711,7 +711,7 @@ def _size_cost(artifact: Any, tool: int = 1) -> Cost:
     """Estimated extraction cost from artifact size, not epistemic relevance.
 
     Prefers a declared ``size`` (cheap stat at discovery) so that selection can
-    gate on cost BEFORE the expensive extraction runs (readme.md §15, §16, and
+    gate on cost BEFORE the expensive extraction runs (MODEL.md §15, §16, and
     the §3 budget that must bound real work, not just post-hoc accounting).
     """
     if isinstance(artifact, dict):
@@ -944,7 +944,7 @@ def propagate_confidence(
     items: Iterable[Any],
     resolver: Callable[[str], float | None],
 ) -> None:
-    """Propagación de confianza conservativa (readme.md §10).
+    """Propagación de confianza conservativa (MODEL.md §10).
 
     Impone ``Conf(b) <= min_{d in Dep(b)} Conf(d)``: una conclusión no puede
     superar la confianza de su dependencia más débil. Las dependencias se

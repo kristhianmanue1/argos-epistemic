@@ -1,4 +1,7 @@
 # Modelo Epistémico Unificado para el Análisis de Software por Agentes de Inteligencia Artificial
+
+> Especificación normativa del modelo. Para instalación, uso y estado del
+> proyecto, consulta [README.md](README.md).
 ## 1. Propósito
 Este modelo formaliza cómo una inteligencia artificial debe adquirir, seleccionar, comprimir, verificar y sintetizar evidencia sobre un sistema de software bajo condiciones reales de:
 * observabilidad incompleta;

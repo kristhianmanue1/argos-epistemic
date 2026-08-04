@@ -1,0 +1,45 @@
+name: Reporte de bug
+description: Reporta un comportamiento reproducible incorrecto
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Comportamiento observado
+      description: Incluye el resultado y el comportamiento esperado.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproducción mínima
+      description: Usa datos públicos o saneados; no incluyas secretos.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Versión o commit
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Área
+      options:
+        - Modelo o semántica
+        - Bundle o schema
+        - Discovery o presupuesto
+        - Extractores
+        - Documentación
+        - Otro
+    validations:
+      required: true
+  - type: checkboxes
+    id: security
+    attributes:
+      label: Seguridad
+      options:
+        - label: Confirmo que esto no contiene una vulnerabilidad ni secretos; esos reportes siguen SECURITY.md.
+          required: true

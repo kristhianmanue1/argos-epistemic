@@ -212,7 +212,7 @@ def test_extract_system_over_real_repo():
     system = extract_system(".", goal={"name": "refactor", "aspects": ["algorithm"]})
     ids = {a["id"] for a in system["artifacts"]}
     assert "L1:topology" in ids
-    assert "readme.md" in ids
+    assert "README.md" in ids
     assert "pyproject.toml" in ids
     assert "argos_epistemic/algorithm.py" in ids
     levels = {a["level"] for a in system["artifacts"]}
@@ -929,7 +929,7 @@ def test_s14_freshness_symmetric_across_levels():
     assert by_id["L3:callgraph"]["freshness"] == 1.0
     assert by_id["L3:callgraph"]["timestamp"] > 0
     # ficheros reales por nivel (L0 doc, L2 config, L4 code): freshness por mtime
-    for aid, lvl in [("readme.md", 0), ("pyproject.toml", 2),
+    for aid, lvl in [("README.md", 0), ("pyproject.toml", 2),
                      ("argos_epistemic/algorithm.py", 4)]:
         art = by_id[aid]
         assert art["level"] == lvl, aid

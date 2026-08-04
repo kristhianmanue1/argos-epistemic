@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "Si utilizas Argos, cita este software y su modelo epistémico."
+title: "Argos Epistemic"
+type: software
+authors:
+  - family-names: "Manuel"
+    given-names: "Kristhian"
+repository-code: "https://github.com/kristhianmanue1/argos-epistemic"
+license: "Apache-2.0"
+version: "0.2.0-dev"
+date-released: "2026-08-03"
