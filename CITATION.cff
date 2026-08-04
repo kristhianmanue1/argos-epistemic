@@ -7,5 +7,5 @@ authors:
     given-names: "Kristhian"
 repository-code: "https://github.com/kristhianmanue1/argos-epistemic"
 license: "Apache-2.0"
-version: "0.2.0-dev"
+version: "0.2.0.dev0"
 date-released: "2026-08-03"

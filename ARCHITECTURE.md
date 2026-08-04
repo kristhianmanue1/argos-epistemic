@@ -51,6 +51,9 @@ candidate actions -> evidence -> verification
 | `callgraph.py` | grafo L3 y centralidad aproximada | resolución dinámica completa |
 | `behavior.py` | señales L4 obtenidas por AST | equivalencia conductual |
 | `dynamic.py` | ejecución de tests y señales runtime | aislamiento de código hostil |
+| `sandbox.py` | entorno aislado y saneado para ejecución dinámica | aislamiento fuerte de OS/red |
+| `dense_semantic.py` | backend denso opcional para `S_semantic` | fidelidad semántica por defecto |
+| `ts_extractors.py` | registro de extractores L3 basados en tree-sitter | cobertura de todos los lenguajes |
 | `history.py`, `logs.py`, `profile.py`, `coverage.py` | evidencia L5 histórica u operacional | vigencia o causalidad |
 | `algorithm.py` | selección, claims, conflictos, cobertura y terminación | verdad total del target |
 | `canonical.py` | identidad reproducible dentro de un perfil | autenticidad criptográfica |

@@ -40,6 +40,21 @@ DEFAULT_IGNORES = {
     "target",
     ".next",
     ".cache",
+    ".tox",
+    ".eggs",
+    "htmlcov",
+    ".coverage",
+    "coverage.xml",
+    ".hypothesis",
+    ".benchmarks",
+    "__pypackages__",
+    ".claude",
+    ".opencode",
+    ".idea",
+    ".vscode",
+    ".fleet",
+    ".cursor",
+    ".continue",
 }
 
 L0_NAMES = {

@@ -3,7 +3,7 @@
 Este proyecto sigue versionado semántico para releases del paquete. Los schemas
 mantienen además su propia versión en el nombre del contrato.
 
-## Unreleased — 0.2.0
+## Unreleased — 0.2.0.dev0
 
 ### Added
 

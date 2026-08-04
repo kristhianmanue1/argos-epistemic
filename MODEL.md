@@ -1119,7 +1119,7 @@ La implementación de referencia expone cinco contratos iniciales:
 
 | Schema | Función | Identidad reproducible |
 |---|---|---|
-| `argos/evaluation-manifest-v1` | identidad del objetivo, evaluador, objetivo y configuración | Sí |
+| `argos/evaluation-manifest-v1` | identidad del target, evaluador, objetivo y configuración | Sí |
 | `argos/evaluation-envelope-v1` | estado compacto y punteros para consumo progresivo | Sí |
 | `argos/discovery-inventory-v1` | universo descubierto, selección y degradaciones | Sí |
 | `argos/claim-record-v1` | afirmación, relación tipada, autoridad, alcance y evidencia | Sí |
