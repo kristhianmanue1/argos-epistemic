@@ -110,7 +110,10 @@ def freshness(level: int, t_x: float, t_now: float) -> float:
 def _walk(root: Path, ignores: set[str]) -> list[Path]:
     out: list[Path] = []
     for path in sorted(root.rglob("*")):
-        if any(part.lower() in ignores for part in path.relative_to(root).parts):
+        rel_parts = path.relative_to(root).parts
+        if any(part.lower() in ignores for part in rel_parts):
+            continue
+        if any(part.lower().endswith(".egg-info") for part in rel_parts):
             continue
         if path.is_file():
             out.append(path)
