@@ -10,8 +10,8 @@ BEGIN = "<!-- an-kla:managed-begin "
 END = '<!-- an-kla:managed-end {"id":"agent-context"} -->'
 SUFFIX = " -->"
 EXPECTED_SCHEMA = "an-kla/context-block/v1"
-EXPECTED_VERSION = "0.1.0-beta.1"
-EXPECTED_CONTRACT_SHA256 = "sha256:4d3c13fd16a55619ee9f84f2c1585e3dae9d9c29717bfcd3d713479a7665822a"
+EXPECTED_VERSION = "0.1.0-beta.6"
+EXPECTED_CONTRACT_SHA256 = "sha256:f19ca106533079e0154ac563a1ea432fb2dee331991c26d0ddf3c27e670364b1"
 
 
 def digest(text: str) -> str:
