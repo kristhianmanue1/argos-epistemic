@@ -14,16 +14,16 @@ Tests en verde: **88**. Objetivo `G=refactorizacion`, aspectos `['algorithm', 'c
 
 ```text
 evidence_count  : 56
-proposition_count: 28
-relations        : {'mentions': 28}
+proposition_count: 27
+relations        : {'mentions': 27}
 conflict_count  : 0
 coverage        : 0.0
 residual_risk   : 0.7
 complete        : False
 levels_covered  : [0, 1, 2, 3, 4, 5]
 aspect_scores   : {'algorithm': 0.0, 'config': 0.0, 'test': 0.0, 'doc': 0.0}
-cost            : estimated=53248 observed=53248
-inventory       : {'profile': 'legacy-first-400-v1', 'files_discovered': 59, 'files_eligible': 53, 'files_selected': 53, 'files_omitted_by_cap': 0, 'read_truncations': 9, 'bytes_discovered': 348630, 'bytes_read': 206461, 'degradations': ['content_truncated'], 'fingerprint': 'sha256:4c5e3cf7f5b68f4aa6419669f7099171aaafb617417c6b56fa97aa0c0ffa3eb8'}
+cost            : estimated=53378 observed=53378
+inventory       : {'profile': 'legacy-first-400-v1', 'files_discovered': 59, 'files_eligible': 53, 'files_selected': 53, 'files_omitted_by_cap': 0, 'read_truncations': 10, 'bytes_discovered': 351670, 'bytes_read': 206989, 'degradations': ['content_truncated'], 'fingerprint': 'sha256:0ce45fd36062bd2ba04405fcffbfcd193b56d576cbc4cd5fb81b231688369940'}
 completion      : {'procedure_complete': False, 'thresholds_met': False, 'degradations': ['content_truncated'], 'blocking_degradations': ['content_truncated'], 'reason_codes': ['threshold_not_met', 'insufficient_sources', 'missing_production_evidence', 'content_truncated', 'no_eligible_actions'], 'termination_reason': 'no_eligible_actions', 'next_actions': [{'action': 'increase_read_limit', 'reason': 'content_truncated', 'authorization_required': True}]}
 ```
 
@@ -39,4 +39,4 @@ El bucle presupuestado selecciona evidencia por utilidad (valor/costo) y detiene
 - **Discovery no presupuestado**: la lectura de archivos y el índice L3 se pagan antes del bucle (el grafo alimenta `R` para la selección); sólo el contenido por-objetivo y los extractores subprocess son perezosos.
 - **Frescura normalizada**: este artefacto fija `freshness=1.0` y `timestamp=0` para no depender del `mtime` asignado por cada checkout; el pipeline normal conserva y evalúa los timestamps reales.
 
-_Generado desde HEAD del pipeline. raw report: `{"evidence_count": 56, "proposition_count": 28, "coverage": 0.0, "residual_risk": 0.7, "complete": false}`_
+_Generado desde HEAD del pipeline. raw report: `{"evidence_count": 56, "proposition_count": 27, "coverage": 0.0, "residual_risk": 0.7, "complete": false}`_
