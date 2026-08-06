@@ -1,3 +1,7 @@
+import sys
+
+import pytest
+
 from argos_epistemic import (
     Budget,
     Cost,
@@ -48,8 +52,8 @@ def test_deterministic():
     assert r1 == r2
 
 
-def test_should_stop_when_thresholds_met():
-    report = analyze_system(
+def _threshold_report(**goal_extra):
+    return analyze_system(
         system={
             "name": "rico",
             "artifacts": [
@@ -63,11 +67,29 @@ def test_should_stop_when_thresholds_met():
             "aspects": ["x"],
             "theta_coverage": 0.5,
             "rho_risk": 0.1,
+            **goal_extra,
         },
         budget=Budget(tokens_remaining=100000, tool_remaining=1000),
     )
-    assert report["complete"] is True
-    assert report["evidence_count"] >= 1
+
+
+def test_should_stop_when_thresholds_met():
+    """Thresholds alone no longer complete: corroboration must also hold.
+
+    These artifacts declare their own support and carry no verifier profile,
+    execution or target revision, so they are undemonstrated sources. With the
+    default ``min_sources_per_aspect=2`` the independence gate refuses
+    completion no matter how high legacy coverage climbs; with a single source
+    required, the thresholds do carry it through.
+    """
+    strict = _threshold_report()
+    assert strict["coverage"] >= strict["completion"]["thresholds_met"]
+    assert strict["complete"] is False
+    assert "insufficient_sources" in strict["completion"]["reason_codes"]
+
+    relaxed = _threshold_report(min_sources_per_aspect=1)
+    assert relaxed["complete"] is True
+    assert relaxed["evidence_count"] >= 1
 
 
 def test_cost_dominance():
@@ -1012,14 +1034,29 @@ def test_default_link_threshold_calibrated_per_linker():
     assert default_link_threshold(lambda a, b: 0.5) == 0.05
 
 
-def test_default_semantic_uses_dense_when_available_else_lexical():
-    from argos_epistemic import default_semantic, dense_semantic_available, lexical_semantic
+def test_default_semantic_is_always_lexical_regardless_of_dense_availability():
+    """The default path must be offline and deterministic, not host-dependent."""
+    from argos_epistemic import default_semantic, lexical_semantic
     from argos_epistemic.extractors import dense_semantic
 
-    if dense_semantic_available():
-        assert default_semantic() is dense_semantic
-    else:
-        assert default_semantic() is lexical_semantic
+    assert default_semantic() is lexical_semantic
+    assert default_semantic() is not dense_semantic
+
+
+def test_default_extraction_path_never_touches_the_network(monkeypatch):
+    """Fails if the default pipeline opens a socket (e.g. downloads a model)."""
+    import socket
+
+    class _NetworkAccessAttempted(RuntimeError):
+        pass
+
+    def _blocked(*args, **kwargs):
+        raise _NetworkAccessAttempted("unit tests must not access the network")
+
+    monkeypatch.setattr(socket, "socket", _blocked)
+    monkeypatch.setattr(socket, "create_connection", _blocked)
+    system = extract_system(".", goal={"name": "refactor", "aspects": ["algorithm"]})
+    assert system["artifacts"]
 
 
 def test_case_study_profiles_are_explicit_and_environment_independent():
@@ -1062,6 +1099,210 @@ def test_git_identity_uses_full_revision_and_reports_dirty_state():
     identity = git_identity(Path("."))
     assert len(identity["revision"]) == 40
     assert isinstance(identity["dirty"], bool)
+
+
+def test_third_party_cases_pin_an_exact_full_sha():
+    import re
+
+    from examples.regenerate_case_studies import THIRD_PARTY_CASES
+
+    full_sha = re.compile(r"^[0-9a-f]{40}$")
+    for slug, case in THIRD_PARTY_CASES.items():
+        assert "pinned_revision" in case, f"{slug} must pin an exact revision"
+        assert full_sha.match(case["pinned_revision"]), (
+            f"{slug} pinned_revision must be a full 40-char SHA, not a branch/tag"
+        )
+
+
+def _local_origin(tmp_path):
+    """A real but purely local git repo, so pin tests never touch the network."""
+    import subprocess
+
+    origin = tmp_path / "origin"
+    origin.mkdir()
+    run = lambda *a: subprocess.run(  # noqa: E731
+        ["git", "-C", str(origin), *a], capture_output=True, text=True, check=True
+    )
+    subprocess.run(["git", "init", "-q", str(origin)], check=True, capture_output=True)
+    run("config", "user.email", "t@example.invalid")
+    run("config", "user.name", "t")
+    (origin / "pyproject.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
+    run("add", "-A")
+    run("commit", "-qm", "one")
+    head = run("rev-parse", "HEAD").stdout.strip()
+    return origin, head
+
+
+def test_fetch_pinned_reports_error_on_unknown_revision(tmp_path):
+    from examples.regenerate_case_studies import _fetch_pinned
+
+    origin, _ = _local_origin(tmp_path)
+    error = _fetch_pinned(str(origin), "0" * 40, tmp_path / "dest")
+    assert error is not None
+
+
+def test_fetch_pinned_checks_out_exactly_the_pinned_revision(tmp_path):
+    from examples.regenerate_case_studies import _fetch_pinned, git_identity
+
+    origin, head = _local_origin(tmp_path)
+    dest = tmp_path / "dest"
+    assert _fetch_pinned(str(origin), head, dest) is None
+    identity = git_identity(dest)
+    assert identity["revision"] == head
+    assert identity["dirty"] is False
+
+
+def test_pinned_revision_mismatch_is_rejected_not_rendered(tmp_path, monkeypatch):
+    """A checkout that lands on a different revision must never be published."""
+    from examples import regenerate_case_studies as mod
+
+    origin, head = _local_origin(tmp_path)
+    case = {
+        "repo": str(origin),
+        "pinned_revision": "1" * 40,
+        "goal": {"name": "g", "aspects": ["x"], "theta_coverage": 0.8, "rho_risk": 0.25},
+        "semantic_profile": "lexical-v1",
+        "independence_class": "independent",
+        "notes": [],
+    }
+    monkeypatch.setattr(mod, "_fetch_pinned", lambda repo, revision, dest: None)
+    monkeypatch.setattr(mod, "git_identity", lambda root: {"revision": head, "dirty": False})
+    md, error = mod._third_party_md("local", case)
+    assert md is None
+    assert error is not None
+    assert "does not match" in error
+
+
+def test_selected_targets_respects_check_target_argument():
+    from examples.regenerate_case_studies import THIRD_PARTY_CASES, _selected_targets
+
+    assert _selected_targets("argos") == ["argos"]
+    assert _selected_targets("markupsafe") == ["markupsafe"]
+    assert _selected_targets("an-kla-memory") == ["an-kla-memory"]
+    all_targets = _selected_targets("all")
+    assert all_targets[0] == "argos"
+    assert set(all_targets[1:]) == set(THIRD_PARTY_CASES)
+
+
+def test_failed_regeneration_preserves_previous_file_byte_for_byte(tmp_path, monkeypatch):
+    from examples import regenerate_case_studies as mod
+
+    examples = tmp_path / "examples"
+    examples.mkdir()
+    target = examples / "case-study-markupsafe.md"
+    original = b"# previous content\n\ncoverage: 0.6333\n"
+    target.write_bytes(original)
+
+    monkeypatch.setattr(mod, "ROOT", tmp_path)
+    monkeypatch.setattr(
+        mod,
+        "generate_case",
+        lambda t, profile: (None, mod.STATUS_UNAVAILABLE, f"{t}: network down"),
+    )
+    monkeypatch.setattr(sys, "argv", ["prog", "--target", "markupsafe"])
+    assert mod.main() == 1
+    assert target.read_bytes() == original
+
+
+def test_two_runs_with_identical_inputs_produce_identical_output(monkeypatch):
+    """Determinism of the pipeline itself.
+
+    ``_test_count`` shells out to ``pytest --collect-only``; it is pinned here so
+    the assertion covers extraction, analysis and rendering rather than the cost
+    and variability of re-collecting the suite twice.
+    """
+    from examples import regenerate_case_studies as mod
+
+    monkeypatch.setattr(mod, "_test_count", lambda: 999)
+    assert mod._argos_md("char-ngram-v1") == mod._argos_md("char-ngram-v1")
+
+
+def test_check_target_all_reports_exactly_the_stale_case(monkeypatch, capsys):
+    from examples import regenerate_case_studies as mod
+
+    outcomes = {
+        "argos": "case-study-argos.md is fresh",
+        "markupsafe": "case-study-markupsafe.md is stale",
+        "an-kla-memory": "case-study-an-kla-memory.md is fresh",
+    }
+    monkeypatch.setattr(
+        mod,
+        "check_case",
+        lambda target, profile: (
+            mod.STATUS_STALE if target == "markupsafe" else mod.STATUS_FRESH,
+            outcomes[target],
+        ),
+    )
+    monkeypatch.setattr(sys, "argv", ["prog", "--target", "all", "--check"])
+    assert mod.main() == 1
+    captured = capsys.readouterr()
+    assert "case-study-markupsafe.md is stale" in captured.err
+    assert "stale" not in captured.out
+    assert "case-study-argos.md is fresh" in captured.out
+    assert "case-study-an-kla-memory.md is fresh" in captured.out
+
+
+def _an_kla_ref(requirement: str) -> str:
+    return requirement.split("@")[-1].strip()
+
+
+def test_an_kla_pin_does_not_drift_between_pyproject_and_requirements():
+    """Regression: d31ba8b bumped requirements.txt and left pyproject.toml behind.
+
+    The two declarations must name the same ref, otherwise `pip install -e .`
+    and `pip install -r requirements.txt` provision different memory engines.
+    """
+    import tomllib
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    pyproject = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    declared = [
+        req
+        for group in pyproject["project"].get("optional-dependencies", {}).values()
+        for req in group
+        if req.startswith("an-kla-memory")
+    ]
+    assert declared, "pyproject.toml must declare an-kla-memory"
+    pinned = [
+        line.strip()
+        for line in (root / "requirements.txt").read_text(encoding="utf-8").splitlines()
+        if line.strip().startswith("an-kla-memory")
+    ]
+    assert pinned, "requirements.txt must declare an-kla-memory"
+    assert {_an_kla_ref(r) for r in declared} == {_an_kla_ref(r) for r in pinned}
+
+
+def test_unavailable_target_is_reported_not_silently_passed(monkeypatch):
+    from examples import regenerate_case_studies as mod
+
+    monkeypatch.setattr(
+        mod,
+        "evaluate_third_party",
+        lambda slug, case, profile: (None, mod.STATUS_UNAVAILABLE, f"{slug}: network down"),
+    )
+    status, message = mod.check_case("markupsafe", None)
+    assert status == mod.STATUS_UNAVAILABLE
+    assert "network down" in message
+
+
+def test_invalid_revision_is_distinguished_from_stale(monkeypatch):
+    """The taxonomy must not collapse 'wrong revision' into 'needs regenerating'."""
+    from examples import regenerate_case_studies as mod
+
+    monkeypatch.setattr(
+        mod,
+        "evaluate_third_party",
+        lambda slug, case, profile: (
+            None,
+            mod.STATUS_INVALID_REVISION,
+            f"{slug}: checked-out revision deadbeef does not match pinned",
+        ),
+    )
+    status, message = mod.check_case("markupsafe", None)
+    assert status == mod.STATUS_INVALID_REVISION
+    assert status != mod.STATUS_STALE
+    assert "does not match" in message
 
 
 def test_linker_threshold_mismatch_no_longer_overlinks_noise():
@@ -1140,3 +1381,626 @@ def test_production_gate_can_be_disabled_via_goal():
             "require_production_evidence": False}
     report = analyze_system(system, goal, Budget(tokens_remaining=10000, tool_remaining=20))
     assert report["complete"] is True
+
+
+def _actions_for(system, goal, propositions=None):
+    from argos_epistemic.algorithm import (
+        BeliefStore,
+        ConflictStore,
+        EvidenceStore,
+        generate_candidate_actions,
+    )
+
+    actions = generate_candidate_actions(
+        system, goal, EvidenceStore(), BeliefStore(), ConflictStore(), [], propositions
+    )
+    return {a.target_id: a for a in actions}
+
+
+def _calibrated(aspects=("write",)):
+    """Goal using the explicitly-labelled illustrative calibration profile.
+
+    The default profile promises zero, which would make the guards below pass
+    vacuously; these tests must prove the guards hold when the numbers are NOT
+    zero.
+    """
+    return {
+        "name": "g",
+        "aspects": list(aspects),
+        "probative_calibration": "demo-linear-v0",
+        "allow_non_empirical_calibration": True,
+    }
+
+
+def _support(confidence, evidence_id, aspect="write", claim=None):
+    from argos_epistemic.algorithm import Proposition
+
+    claim = claim or f"claim-{evidence_id}"
+    return Proposition(
+        aspect=aspect, polarity=1.0, claim=claim, evidence_id=evidence_id,
+        confidence=confidence, method="symbolic", scope=aspect, relation="supports",
+        claim_id=f"claim:{aspect}:{claim}",
+    )
+
+
+CAPABILITY_CASES = [
+    # (artifact extras, expected capability) - hand-written oracle, not a
+    # re-derivation of the implementation's own branching.
+    ({}, "retrieval_only"),
+    ({"supports": [{"aspect": "write"}]}, "probatory_static"),
+    ({"refutes": [{"aspect": "write"}]}, "probatory_static"),
+    ({"implements": [{"aspect": "write"}]}, "structural_relation"),
+    ({"tests": [{"aspect": "write"}]}, "structural_relation"),
+    ({"configures": [{"aspect": "write"}]}, "structural_relation"),
+    ({"supports": [{"aspect": "telemetry"}]}, "retrieval_only"),
+    ({"verification_method": "dynamic"}, "probatory_dynamic"),
+]
+
+
+@pytest.mark.parametrize("extras,expected", CAPABILITY_CASES)
+def test_action_capability_matches_hand_written_oracle(extras, expected):
+    artifact = {"id": "a", "content": "x", "level": 4, "relevance": 0.9, "kind": "code", **extras}
+    system = {"name": "s", "artifacts": [artifact]}
+    goal = {"name": "g", "aspects": ["write"]}
+    assert _actions_for(system, goal)["a"].capability == expected
+
+
+def test_retrieval_only_gets_no_coverage_and_no_risk_reduction():
+    system = {
+        "name": "s",
+        "artifacts": [
+            {"id": "readme.md", "content": "explains the write path", "level": 0,
+             "relevance": 0.9, "kind": "doc"},
+        ],
+    }
+    action = _actions_for(system, {"name": "g", "aspects": ["write"]})["readme.md"]
+    assert action.capability == "retrieval_only"
+    assert action.expected_delta_coverage == 0.0
+    assert action.expected_delta_risk_reduction <= 0.0
+    assert action.expected_contradiction_discovery == 0.0
+    # Retrieval is still worth something, under its own name.
+    assert action.expected_retrieval_gain > 0.0
+
+
+def test_structural_relations_get_no_probative_expectations():
+    system = {
+        "name": "s",
+        "artifacts": [
+            {"id": "t.py", "content": "test", "level": 5, "relevance": 0.9, "kind": "test",
+             "implements": [{"aspect": "write"}]},
+        ],
+    }
+    action = _actions_for(system, {"name": "g", "aspects": ["write"]})["t.py"]
+    assert action.capability == "structural_relation"
+    assert action.expected_delta_coverage == 0.0
+    assert action.expected_delta_risk_reduction <= 0.0
+
+
+@pytest.mark.parametrize(
+    "profile,diagnostic",
+    [
+        ("does-not-exist", "calibration_profile:unknown"),
+        ({"coverage_gain": 9}, "calibration_profile:not_a_string"),
+        (["x"], "calibration_profile:not_a_string"),
+        (None, "calibration_profile:not_a_string"),
+        (7, "calibration_profile:not_a_string"),
+        ("demo-linear-v0", "calibration_profile:non_empirical_requires_opt_in"),
+    ],
+)
+def test_invalid_or_unauthorized_calibration_reports_requested_and_effective(
+    profile, diagnostic
+):
+    """No silent fallback under the requested name, and no accidental TypeError."""
+    goal = {"name": "g", "aspects": ["write"], "probative_calibration": profile}
+    action = _actions_for(_SUPPORTING_SYSTEM, goal)["core.py"]
+    assert action.calibration_profile == "uncalibrated-v0"
+    assert action.requested_calibration_profile != "uncalibrated-v0"
+    assert diagnostic in action.declaration_diagnostics
+    assert action.expected_delta_coverage == 0.0
+
+
+def test_calibration_profile_metadata_is_internally_consistent():
+    """`empirical` and `requires_opt_in` are separate axes; neither may lie."""
+    from argos_epistemic.algorithm import PROBATIVE_CALIBRATION_PROFILES
+
+    default = PROBATIVE_CALIBRATION_PROFILES["uncalibrated-v0"]
+    # The default is a conservative zero bound, NOT an empirical calibration.
+    assert default["empirical"] is False
+    assert default["requires_opt_in"] is False
+    assert default["status"] == "conservative_zero_bound"
+
+    demo = PROBATIVE_CALIBRATION_PROFILES["demo-linear-v0"]
+    assert demo["empirical"] is False
+    assert demo["requires_opt_in"] is True
+    assert demo["status"] == "illustrative_only"
+
+
+def test_non_string_calibration_profile_is_reported_as_sanitised_marker():
+    """The goal is caller-supplied; it must not be echoed back into the report."""
+    secret = {"api_key": "s3cr3t"}
+    action = _actions_for(
+        _SUPPORTING_SYSTEM,
+        {"name": "g", "aspects": ["write"], "probative_calibration": secret},
+    )["core.py"]
+    assert action.requested_calibration_profile == "<non-string:dict>"
+    assert "s3cr3t" not in action.requested_calibration_profile
+
+
+def test_non_empirical_profile_requires_explicit_opt_in():
+    """demo-linear-v0 must never be mistaken for a production calibration."""
+    from argos_epistemic.algorithm import PROBATIVE_CALIBRATION_PROFILES
+
+    assert PROBATIVE_CALIBRATION_PROFILES["demo-linear-v0"]["requires_opt_in"] is True
+    without = _actions_for(
+        _SUPPORTING_SYSTEM,
+        {"name": "g", "aspects": ["write"], "probative_calibration": "demo-linear-v0"},
+    )["core.py"]
+    assert without.calibration_profile == "uncalibrated-v0"
+    with_opt_in = _actions_for(_SUPPORTING_SYSTEM, _calibrated())["core.py"]
+    assert with_opt_in.calibration_profile == "demo-linear-v0"
+
+
+def test_uncalibrated_default_promises_zero_probative_expectations():
+    """No empirical calibration exists, so the honest prior is zero, not a guess."""
+    system = {
+        "name": "s",
+        "artifacts": [
+            {"id": "core.py", "content": "x", "level": 4, "relevance": 0.9, "kind": "code",
+             "supports": [{"aspect": "write"}]},
+        ],
+    }
+    action = _actions_for(system, {"name": "g", "aspects": ["write"]})["core.py"]
+    assert action.capability == "probatory_static"
+    assert action.calibration_profile == "uncalibrated-v0"
+    assert action.expectation_uncertainty == "unbounded"
+    assert action.expected_delta_coverage == 0.0
+    assert action.expected_contradiction_discovery == 0.0
+    assert action.expected_delta_risk_reduction == 0.0
+
+
+def test_refutes_only_artifact_promises_no_coverage_and_no_risk_reduction():
+    """A refutation cannot cover an aspect, and by the risk invariant cannot lower risk."""
+    system = {
+        "name": "s",
+        "artifacts": [
+            {"id": "neg.py", "content": "x", "level": 4, "relevance": 0.9, "kind": "code",
+             "refutes": [{"aspect": "write"}]},
+        ],
+    }
+    action = _actions_for(system, _calibrated())["neg.py"]
+    assert action.capability == "probatory_static"
+    assert action.expected_delta_coverage == 0.0
+    assert action.expected_delta_risk_reduction <= 0.0
+    # Its genuine value is discovering the contradiction, under a real profile.
+    assert action.expected_contradiction_discovery > 0.0
+
+
+def test_supports_and_refutes_on_same_claim_never_promises_risk_reduction():
+    """Mandated regression: this combination previously promised 0.135 while the
+    resulting residual_risk is 1.0."""
+    system = {
+        "name": "s",
+        "artifacts": [
+            {"id": "both.py", "content": "x", "level": 4, "relevance": 0.9, "kind": "code",
+             "supports": [{"aspect": "write", "claim": "c", "scope": "s"}],
+             "refutes": [{"aspect": "write", "claim": "c", "scope": "s"}]},
+        ],
+    }
+    action = _actions_for(system, _calibrated())["both.py"]
+    assert action.expected_delta_risk_reduction <= 0.0
+    assert "self_contradictory_declaration" in action.declaration_diagnostics
+
+
+_SUPPORTING_SYSTEM = {
+    "name": "s",
+    "artifacts": [
+        {"id": "core.py", "content": "x", "level": 4, "relevance": 0.9, "kind": "code",
+         "supports": [{"aspect": "write"}]},
+    ],
+}
+
+
+def test_expected_coverage_tracks_headroom_not_a_binary_covered_flag():
+    """Coverage is gradual via aspect_score, so partial support leaves headroom.
+
+    Hand-computed oracle: aspect_score = clamp01(sum(conf) / 1.8). With one
+    0.6 support the aspect sits at 0.3333, so a further support is still
+    worth something; only once the score saturates does the delta vanish.
+    """
+    no_support = _actions_for(_SUPPORTING_SYSTEM, _calibrated())["core.py"]
+    partial = _actions_for(
+        _SUPPORTING_SYSTEM, _calibrated(), [_support(0.6, "e1")]
+    )["core.py"]
+    saturated = _actions_for(
+        _SUPPORTING_SYSTEM, _calibrated(), [_support(0.9, "e1"), _support(0.9, "e2")]
+    )["core.py"]
+
+    assert no_support.expected_delta_coverage > 0.0
+    assert partial.expected_delta_coverage > 0.0, "partial coverage must leave headroom"
+    assert saturated.expected_delta_coverage == 0.0
+
+
+def test_duplicate_support_does_not_inflate_expected_coverage():
+    """Metamorphic: repeating the same claim must not raise the expected delta."""
+    once = _actions_for(
+        _SUPPORTING_SYSTEM, _calibrated(), [_support(0.6, "e1", claim="same")]
+    )["core.py"]
+    twice = _actions_for(
+        _SUPPORTING_SYSTEM,
+        _calibrated(),
+        [_support(0.6, "e1", claim="same"), _support(0.6, "e1", claim="same")],
+    )["core.py"]
+    assert twice.expected_delta_coverage <= once.expected_delta_coverage + 1e-12
+
+
+def test_legacy_known_unsound_coverage_counts_duplicate_claims_removal_target_pr_f():
+    """LEGACY / KNOWN-UNSOUND compatibility contract. REMOVAL TARGET: PR F.
+
+    This pins current behaviour that is **not correct** and must not be read as
+    a specification. ``compute_residual_risk`` aggregates by claim identity, but
+    ``compute_coverage``/``aspect_score`` still sum over propositions, so three
+    readings of one claim treble the score.
+
+    DESIRED behaviour, to be implemented in PR F: coverage is invariant under
+    duplication of the same normalised claim and the same observed root, i.e.
+    aggregated by claim and independence_group rather than by proposition
+    volume.
+
+    Until then, ``complete`` must never rest on this inflation: the independence
+    gate (PR D) is what keeps duplicates from satisfying corroboration.
+    """
+    from argos_epistemic.algorithm import compute_coverage, compute_residual_risk
+
+    aspects = [{"name": "write", "weight": 1.0}]
+    duplicated = [_support(0.6, "e1", claim="same") for _ in range(3)]
+    single = [_support(0.6, "e1", claim="same")]
+
+    assert compute_coverage(single, aspects) == pytest.approx(0.3333, abs=1e-4)
+    assert compute_coverage(duplicated, aspects) == pytest.approx(1.0, abs=1e-4)
+    # Risk already ignores duplicates; coverage does not. That asymmetry is the defect.
+    assert compute_residual_risk(duplicated, aspects, {}) == compute_residual_risk(
+        single, aspects, {}
+    )
+
+
+def test_independent_additional_support_still_has_expected_coverage():
+    independent = _actions_for(
+        _SUPPORTING_SYSTEM, _calibrated(), [_support(0.6, "e1", claim="first")]
+    )["core.py"]
+    assert independent.expected_delta_coverage > 0.0
+
+
+def test_expected_coverage_is_zero_without_calibration_even_with_headroom():
+    """The headroom exists, but an uncalibrated profile promises nothing."""
+    uncalibrated = _actions_for(
+        _SUPPORTING_SYSTEM, {"name": "g", "aspects": ["write"]}, [_support(0.6, "e1")]
+    )["core.py"]
+    assert uncalibrated.expected_delta_coverage == 0.0
+
+
+def test_off_goal_supports_earn_no_expected_coverage():
+    system = {
+        "name": "s",
+        "artifacts": [
+            {"id": "off.py", "content": "x", "level": 4, "relevance": 0.9, "kind": "code",
+             "supports": [{"aspect": "telemetry"}]},
+        ],
+    }
+    action = _actions_for(system, {"name": "g", "aspects": ["write"]})["off.py"]
+    assert action.capability == "retrieval_only"
+    assert action.expected_delta_coverage == 0.0
+
+
+METAMORPHIC_ARTIFACTS = [
+    ("retrieval_only", {}),
+    ("structural_relation", {"implements": [{"aspect": "write"}]}),
+    ("probatory_static", {"supports": [{"aspect": "write"}]}),
+    ("probatory_static", {"refutes": [{"aspect": "write"}]}),
+    ("probatory_dynamic", {"verification_method": "dynamic"}),
+]
+
+
+@pytest.mark.parametrize("capability,extras", METAMORPHIC_ARTIFACTS)
+def test_metamorphic_relevance_moves_only_retrieval_never_probative(capability, extras):
+    """Metamorphic across every capability: relevance is a retrieval signal only."""
+    def build(relevance):
+        system = {
+            "name": "s",
+            "artifacts": [{"id": "a", "content": "x", "level": 4,
+                           "relevance": relevance, "kind": "code", **extras}],
+        }
+        return _actions_for(system, _calibrated())["a"]
+
+    low, high = build(0.1), build(0.9)
+    assert low.capability == high.capability == capability
+    assert high.expected_retrieval_gain > low.expected_retrieval_gain
+    assert high.expected_delta_coverage == low.expected_delta_coverage
+    assert high.expected_contradiction_discovery == low.expected_contradiction_discovery
+    assert high.expected_delta_risk_reduction == low.expected_delta_risk_reduction
+
+
+MALFORMED_DECLARATIONS = [
+    {"supports": []},
+    {"supports": "write"},
+    {"supports": [{"no_aspect": "write"}]},
+    {"supports": ["write"]},
+    {"refutes": None},
+    {"supports": [{"aspect": "write", "strength": None}]},
+    {"supports": [{"aspect": "write", "strength": "bad"}]},
+    {"supports": [{"aspect": "write", "strength": float("nan")}]},
+    {"supports": [{"aspect": "write", "strength": float("inf")}]},
+    {"supports": [{"aspect": "write", "strength": -0.5}]},
+    {"supports": [{"aspect": "write", "strength": 1.5}]},
+    {"supports": [{"aspect": "write", "claim": 42}]},
+    {"supports": [{"aspect": "write", "scope": ["x"]}]},
+    {"supports": [{"aspect": 7}]},
+]
+
+
+@pytest.mark.parametrize("relation", ["supports", "refutes"])
+def test_zero_strength_never_produces_probative_evidence_end_to_end(relation):
+    """A relation of strength exactly zero asserts that the relation does NOT hold.
+
+    Admitting it produced a false completion: coverage 0.3333, residual_risk 0.0
+    and complete=True from a declaration asserting nothing.
+    """
+    system = {
+        "name": "s",
+        "artifacts": [
+            {"id": "a", "content": "x", "level": 4, "relevance": 0.9, "kind": "code",
+             relation: [{"aspect": "write", "strength": 0.0}]},
+        ],
+    }
+    goal = {"name": "g", "aspects": ["write"], "min_sources_per_aspect": 1,
+            "theta_coverage": 0.3, "rho_risk": 0.5}
+    report = analyze_system(system, goal, Budget(tokens_remaining=10000, tool_remaining=10))
+
+    assert report["coverage"] == 0.0
+    assert report["residual_risk"] == 1.0
+    assert report["complete"] is False
+    assert not {"supports", "refutes"} & {c["relation"] for c in report["conclusions"]}
+    diagnostics = report["declaration_diagnostics"][0]["diagnostics"]
+    assert f"{relation}:zero_strength_no_effect" in diagnostics
+
+
+def test_positive_strength_below_one_remains_admissible():
+    """Only exactly zero is rejected; (0, 1] stays usable."""
+    system = {
+        "name": "s",
+        "artifacts": [
+            {"id": "a", "content": "x", "level": 4, "relevance": 0.9, "kind": "code",
+             "supports": [{"aspect": "write", "strength": 0.5}]},
+        ],
+    }
+    goal = {"name": "g", "aspects": ["write"], "min_sources_per_aspect": 1,
+            "theta_coverage": 0.3, "rho_risk": 0.5}
+    report = analyze_system(system, goal, Budget(tokens_remaining=10000, tool_remaining=10))
+    assert report["coverage"] > 0.0
+    assert report["declaration_diagnostics"] == []
+
+
+@pytest.mark.parametrize("extras", MALFORMED_DECLARATIONS)
+def test_malformed_declarations_survive_analyze_system_end_to_end(extras):
+    """End-to-end: the public entry point must not raise, must not treat junk as
+    proof, must return finite metrics, and must surface the diagnostic."""
+    import math as _math
+
+    system = {
+        "name": "s",
+        "artifacts": [{"id": "a", "content": "x", "level": 4, "relevance": 0.9,
+                       "kind": "code", **extras}],
+    }
+    goal = {"name": "g", "aspects": ["write"]}
+    report = analyze_system(system, goal, Budget(tokens_remaining=10000, tool_remaining=10))
+
+    assert _math.isfinite(report["coverage"])
+    assert _math.isfinite(report["residual_risk"])
+    assert 0.0 <= report["coverage"] <= 1.0
+    assert 0.0 <= report["residual_risk"] <= 1.0
+    assert report["coverage"] == 0.0
+    probative = {"supports", "refutes"}
+    assert not probative & {c["relation"] for c in report["conclusions"]}
+    assert "declaration_diagnostics" in report
+
+
+@pytest.mark.parametrize(
+    "extras",
+    [
+        {"supports": [{"aspect": "write", "strength": "bad"}]},
+        {"supports": [{"aspect": "write", "strength": None}]},
+        {"supports": [{"aspect": "write", "strength": float("nan")}]},
+        {"refutes": "nonsense"},
+        {"supports": [{"aspect": "write", "claim": 42}]},
+    ],
+)
+def test_malformed_declarations_are_visible_in_the_public_report(extras):
+    system = {
+        "name": "s",
+        "artifacts": [{"id": "a", "content": "x", "level": 4, "relevance": 0.9,
+                       "kind": "code", **extras}],
+    }
+    report = analyze_system(
+        system, {"name": "g", "aspects": ["write"]},
+        Budget(tokens_remaining=10000, tool_remaining=10),
+    )
+    entries = report["declaration_diagnostics"]
+    assert entries, f"diagnostic must reach the public report for {extras}"
+    assert entries[0]["evidence_id"] == "a"
+    assert entries[0]["diagnostics"]
+
+
+@pytest.mark.parametrize("extras", MALFORMED_DECLARATIONS)
+def test_adversarial_malformed_declarations_fail_closed(extras):
+    """Malformed declarations must never be read as probative, and must not raise."""
+    system = {
+        "name": "s",
+        "artifacts": [{"id": "a", "content": "x", "level": 4, "relevance": 0.9,
+                       "kind": "code", **extras}],
+    }
+    action = _actions_for(system, _calibrated())["a"]
+    assert action.capability == "retrieval_only", extras
+    assert action.expected_delta_coverage == 0.0
+    assert action.expected_delta_risk_reduction == 0.0
+
+
+@pytest.mark.parametrize("relevance", [None, "high", float("nan"), float("inf"), -1.0, 2.0])
+def test_adversarial_invalid_relevance_is_diagnosed_not_raised(relevance):
+    system = {
+        "name": "s",
+        "artifacts": [{"id": "a", "content": "x", "level": 4, "relevance": relevance,
+                       "kind": "code"}],
+    }
+    action = _actions_for(system, _calibrated())["a"]
+    assert action.expected_retrieval_gain == 0.0
+    assert "relevance:not_a_unit_interval_value" in action.declaration_diagnostics
+
+
+def test_malformed_declarations_are_reported_as_structured_diagnostics():
+    system = {
+        "name": "s",
+        "artifacts": [{"id": "a", "content": "x", "level": 4, "relevance": 0.9, "kind": "code",
+                       "supports": [{"aspect": "write", "strength": float("nan")}],
+                       "refutes": "nonsense"}],
+    }
+    action = _actions_for(system, _calibrated())["a"]
+    assert "supports:strength_not_finite" in action.declaration_diagnostics
+    assert "refutes:not_a_list" in action.declaration_diagnostics
+
+
+def test_next_actions_carry_every_required_structured_field():
+    system = {
+        "name": "s",
+        "inventory": {"degradations": ["content_truncated"]},
+        "artifacts": [
+            {"id": "readme.md", "content": "write stuff", "level": 0, "relevance": 0.9,
+             "kind": "doc"},
+        ],
+    }
+    goal = {
+        "name": "g",
+        "aspects": ["write"],
+        "aspect_linker": lambda _content, _aspect: 1.0,
+        "link_threshold": 0.5,
+        "accepted_degradations": [],
+    }
+    report = analyze_system(system, goal, Budget(tokens_remaining=10000, tool_remaining=10))
+    completion = report["completion"]
+    assert "content_truncated" in completion["reason_codes"]
+    assert "threshold_not_met" in completion["reason_codes"]
+
+    by_action = {a["action"]: a for a in completion["next_actions"]}
+    # The action must exist: no optional branch may make this assertion vacuous.
+    read_limit = by_action["increase_read_limit"]
+    for field in (
+        "addresses_reason_codes",
+        "remaining_blockers",
+        "expected_effect",
+        "capability_required",
+        "sufficient_if_successful",
+        "authorization_required",
+    ):
+        assert field in read_limit, field
+    assert read_limit["addresses_reason_codes"] == ["content_truncated"]
+    assert "threshold_not_met" in read_limit["remaining_blockers"]
+    assert "insufficient_sources" in read_limit["remaining_blockers"]
+    assert read_limit["sufficient_if_successful"] is False
+    assert read_limit["capability_required"] == "retrieval_only"
+
+
+def test_sufficiency_requires_a_computed_target_not_just_an_empty_blocker_list():
+    """"Raise the limit" with no target has no verifiable postcondition."""
+    system = {
+        "name": "s",
+        "inventory": {"degradations": ["content_truncated"], "bytes_discovered": 4096},
+        "artifacts": [
+            {"id": "code.py", "content": "cas", "level": 4, "relevance": 1.0, "kind": "code",
+             "supports": [{"aspect": "write", "claim": "c", "scope": "v1"}]},
+        ],
+    }
+    goal = {"name": "g", "aspects": ["write"], "theta_coverage": 0.1, "rho_risk": 1.0,
+            "min_sources_per_aspect": 1}
+    report = analyze_system(system, goal, Budget(tokens_remaining=10000, tool_remaining=10))
+    action = {a["action"]: a for a in report["completion"]["next_actions"]}["increase_read_limit"]
+    assert action["remaining_blockers"] == []
+    # A concrete target exists, so sufficiency is demonstrable here.
+    assert action["parameter"] == "read_limit_bytes"
+    assert action["target_value"] == 4096
+    assert action["sufficient_if_successful"] is True
+
+
+def test_sufficiency_is_false_when_no_target_can_be_computed():
+    system = {
+        "name": "s",
+        "inventory": {"degradations": ["content_truncated"]},
+        "artifacts": [
+            {"id": "code.py", "content": "cas", "level": 4, "relevance": 1.0, "kind": "code",
+             "supports": [{"aspect": "write", "claim": "c", "scope": "v1"}]},
+        ],
+    }
+    goal = {"name": "g", "aspects": ["write"], "theta_coverage": 0.1, "rho_risk": 1.0,
+            "min_sources_per_aspect": 1}
+    report = analyze_system(system, goal, Budget(tokens_remaining=10000, tool_remaining=10))
+    action = {a["action"]: a for a in report["completion"]["next_actions"]}["increase_read_limit"]
+    assert action["remaining_blockers"] == []
+    assert "target_value" not in action
+    assert action["sufficient_if_successful"] is False
+
+
+def test_increase_budget_never_claims_sufficiency():
+    """No computable target exists for a budget bump."""
+    report = run(budget=Budget(tokens_remaining=1, tool_remaining=1))
+    action = {a["action"]: a for a in report["completion"]["next_actions"]}["increase_budget"]
+    assert action["sufficient_if_successful"] is False
+
+
+def test_missing_support_proposes_a_verifier_without_executing_anything():
+    system = {
+        "name": "s",
+        "artifacts": [
+            {"id": "readme.md", "content": "write stuff", "level": 0, "relevance": 0.9,
+             "kind": "doc"},
+        ],
+    }
+    goal = {
+        "name": "g",
+        "aspects": ["write"],
+        "aspect_linker": lambda _content, _aspect: 1.0,
+        "link_threshold": 0.5,
+    }
+    report = analyze_system(system, goal, Budget(tokens_remaining=10000, tool_remaining=10))
+    by_action = {a["action"]: a for a in report["completion"]["next_actions"]}
+    proposal = by_action["enable_probative_verifier"]
+    assert proposal["capability_required"] == "probatory_static"
+    assert proposal["authorization_required"] is True
+    assert "write" in proposal["aspects"]
+    assert proposal["reason"] == "no_probative_evidence_available"
+    assert proposal["aspects_without_support"] == ["write"]
+    # Enabling a verifier cannot be shown to be sufficient in advance.
+    assert proposal["sufficient_if_successful"] is False
+    # Proposing is not running: no probative evidence appeared in this report.
+    assert report["coverage"] == 0.0
+    assert {c["relation"] for c in report["conclusions"]} == {"mentions"}
+
+
+def test_verifier_proposal_distinguishes_under_corroboration_from_no_support():
+    """With support present but min_sources unmet, the reason and targets must
+    reflect corroboration, not 'no probative evidence', and must not be empty."""
+    system = {
+        "name": "s",
+        "artifacts": [
+            {"id": "code.py", "content": "cas", "level": 4, "relevance": 1.0, "kind": "code",
+             "supports": [{"aspect": "write", "claim": "writes use cas", "scope": "v1"}]},
+        ],
+    }
+    goal = {"name": "g", "aspects": ["write"], "min_sources_per_aspect": 2,
+            "theta_coverage": 0.9, "rho_risk": 0.1}
+    report = analyze_system(system, goal, Budget(tokens_remaining=10000, tool_remaining=10))
+    completion = report["completion"]
+    assert "insufficient_sources" in completion["reason_codes"]
+    proposal = {a["action"]: a for a in completion["next_actions"]}["enable_probative_verifier"]
+    assert proposal["reason"] == "insufficient_corroboration"
+    assert proposal["aspects"] == ["write"]
+    assert proposal["aspects"] != []
+    assert proposal["aspects_under_corroborated"] == ["write"]
+    assert proposal["aspects_without_support"] == []
+    assert proposal["min_sources_per_aspect"] == 2

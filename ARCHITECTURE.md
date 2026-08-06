@@ -52,6 +52,7 @@ candidate actions -> evidence -> verification
 | `behavior.py` | señales L4 obtenidas por AST | equivalencia conductual |
 | `dynamic.py` | ejecución de tests y señales runtime | aislamiento de código hostil |
 | `sandbox.py` | entorno aislado y saneado para ejecución dinámica | aislamiento fuerte de OS/red |
+| `verifiers.py` | protocolo de verificación estática, normalización de claims e independencia entre fuentes | que un claim estrecho implique una propiedad amplia |
 | `dense_semantic.py` | backend denso opcional para `S_semantic` | fidelidad semántica por defecto |
 | `ts_extractors.py` | registro de extractores L3 basados en tree-sitter | cobertura de todos los lenguajes |
 | `history.py`, `logs.py`, `profile.py`, `coverage.py` | evidencia L5 histórica u operacional | vigencia o causalidad |
@@ -70,6 +71,74 @@ enlaza evidencia con un aspecto mediante una relación:
 
 El `claim_id` depende de perfil, aspecto, texto y alcance. Un conflicto requiere
 el mismo `claim_id` y alcance, además de evidencia `supports` y `refutes`.
+
+El planificador clasifica cada acción candidata por capacidad
+(`retrieval_only`, `structural_relation`, `probatory_static`,
+`probatory_dynamic`) y separa las expectativas de recuperación, cobertura,
+descubrimiento de contradicción y reducción de riesgo. Una acción sólo recibe
+expectativa de un bien que su capacidad puede entregar; la relevancia alimenta
+la recuperación, nunca la prueba. Las expectativas probatorias provienen de un
+perfil de calibración versionado con incertidumbre declarada, cuyo valor por
+defecto es cero, y se calculan contra el estado probatorio vigente. Las
+declaraciones malformadas fallan cerrado con diagnóstico estructurado. Ver
+[MODEL.md §20.1](MODEL.md#201-utilidad-operativa-y-capacidad-de-acción).
+
+`probatory_dynamic` nombra el método de producción, no una autorización: la
+ejecución dinámica se autoriza en la frontera de extracción y ninguna etiqueta
+de capacidad concede autoridad.
+
+## Frontera de verificación e independencia
+
+`verifiers.py` separa el candidato temático de la prueba. Un verificador
+devuelve únicamente lo que afirma (`VerifierClaim`); el perfil versionado, el
+método, la ejecución, la revisión del target y las huellas de las raíces
+observadas los **estampa la frontera** (`run_verifier`) a partir de entradas
+confiables. Ni el target analizado ni un verificador defectuoso pueden declarar
+esos campos, que son precisamente las entradas del cálculo de independencia.
+Una excepción, una entrada no soportada, un aspecto fuera del objetivo o un
+claim vacío producen `degraded` o `unknown` con confianza cero; nunca `supports`.
+
+La independencia **no** es un hash de `perfil + método + raíz`: ese cálculo
+haría que dos verificadores distintos sobre el mismo archivo parecieran
+independientes y no representaría conjuntos de raíces parcialmente solapados
+(`{x,y}` y `{y,z}` producen hashes distintos pero comparten `y`). Se computa
+como componentes conexos sobre **raíz compartida, ejecución compartida, familia
+de instrumento compartida y derivación** (incluido un padre externo ausente del
+conjunto evaluado), y se cuentan **componentes, no salidas**.
+
+La familia es el instrumento; la versión se conserva para reproducción y
+auditoría y liga la identidad del resultado, pero **no** crea un segundo
+testigo: `pep621@1` y `pep621@2` son un instrumento, no dos.
+
+La **revisión objetivo evaluada es una entrada explícita**, nunca elegida para
+favorecer el resultado: las fuentes de otras revisiones se ignoran en vez de
+acreditarse, y un análisis que no declara revisión no puede demostrar
+corroboración. Ante ausencia de procedencia —familia, ejecución, revisión o
+raíz— los resultados no aportan grupo adicional: la duda nunca multiplica
+fuentes.
+
+La identidad del resultado no es la independencia de la fuente: dos alias
+producen `result_id` distintos y aun así colapsan como una sola fuente porque
+comparten huella de raíz.
+
+La corroboración se evalúa por claim normalizado: soportes de claims distintos
+del mismo aspecto no se suman. Un aspecto queda satisfecho cuando al menos uno
+de sus claims alcanza el mínimo de grupos independientes exigido.
+
+La agregación consume claims ya tipados, pero **no es homogénea** y conviene no
+describirla como si lo fuera:
+
+| Métrica | Agregación vigente |
+|---|---|
+| `residual_risk` | por claim normalizado; repetir una lectura no cambia el valor |
+| `coverage` | **legacy: por volumen de proposiciones**; varias lecturas del mismo claim la elevan. Limitación conocida, no propiedad deseada; corrección asignada a PR F |
+| `min_sources` / independencia | por claim y grupo independiente; protección **transitoria** de `complete` mientras `coverage` siga siendo legacy |
+
+Las relaciones no probatorias (`mentions`, `tests`, `implements`, `configures`)
+quedan fuera de los numeradores y denominadores probatorios, de modo que la
+recuperación no puede desplazar a la prueba. Ver
+[MODEL.md §13.1](MODEL.md#131-agregación-operativa-del-riesgo-residual) y
+[§12.1](MODEL.md#121-corroboración-e-independencia-entre-fuentes).
 
 La mezcla de relevancia es una aproximación declarada de la especificación
 formal (MODEL.md §6): pesos fijos (`0.40 lexical + 0.18 S_semantic + 0.18 impact

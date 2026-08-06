@@ -21,7 +21,7 @@ from .behavior import behavior_artifact, behavior_summary, extract_behavior
 from .bundle import INVENTORY_SCHEMA
 from .callgraph import CallGraph, build_multi_call_graph, module_metrics
 from .canonical import CANONICALIZATION_PROFILE, fingerprinted_document
-from .dense_semantic import dense_semantic, dense_semantic_available
+from .dense_semantic import dense_semantic
 
 DEFAULT_IGNORES = {
     ".ds_store",
@@ -238,11 +238,21 @@ def embedding_semantic(artifact_text: str, goal_text: str) -> float:
 
 
 def default_semantic():
-    """Linker semántico por defecto: denso (sentence-transformers) si está
-    disponible, si no léxico. Nunca el surrogate de char-n-gramas
-    (``embedding_semantic``), cuyo suelo ~0.5 lo hace no discriminativo y
-    sobre-enlaza artefactos irrelevantes (.gitignore -> 'memory')."""
-    return dense_semantic if dense_semantic_available() else lexical_semantic
+    """Linker semántico por defecto: **siempre** léxico, offline y determinista.
+
+    El backend denso queda fuera del camino por defecto aunque
+    ``sentence-transformers`` esté instalado: cargarlo descarga
+    ``all-MiniLM-L6-v2`` desde Hugging Face, lo que convierte una extracción por
+    defecto en una operación de red no declarada y hace que el resultado dependa
+    de la caché del host. Un backend denso se selecciona explícitamente
+    (``semantic_fn=dense_semantic`` o el perfil ``minilm-v1``) y sólo en
+    contextos donde la red está autorizada.
+
+    Nunca el surrogate de char-n-gramas (``embedding_semantic``), cuyo suelo
+    ~0.5 lo hace no discriminativo y sobre-enlaza artefactos irrelevantes
+    (.gitignore -> 'memory').
+    """
+    return lexical_semantic
 
 
 def default_link_threshold(linker) -> float:

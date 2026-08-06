@@ -35,12 +35,23 @@ Un contribuyente sin acceso puede ejecutar los gates públicos restantes.
 ```
 
 Si un cambio altera resultados reproducibles, regenera primero el benchmark y
-después el caso de estudio Argos:
+después los casos de estudio:
 
 ```bash
 .venv/bin/python bench/run_benchmark.py
-.venv/bin/python examples/regenerate_case_studies.py --target argos
+.venv/bin/python examples/regenerate_case_studies.py --target all
 ```
+
+Los tres casos están comprometidos y ninguno puede quedar obsoleto en silencio.
+El gate por PR verifica sólo `--target argos`, que es determinista y no usa red.
+Los casos tercerizados fijan una revisión exacta del target y requieren red y el
+perfil semántico denso, por lo que se verifican en
+`.github/workflows/case-studies-remote.yml` (programado y a demanda). Ese job
+falla cerrado: `unavailable` e `invalid_revision` no son éxito.
+
+Los Markdown generados no se editan a mano: se cambia el generador y se
+regenera. `--check` distingue `fresh`, `stale`, `unavailable` e
+`invalid_revision`, y una regeneración fallida conserva el archivo anterior.
 
 ## Reglas de compatibilidad
 

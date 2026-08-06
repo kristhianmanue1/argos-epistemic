@@ -1,8 +1,8 @@
 # Caso de estudio: markupsafe (tercerizado)
 
-> Generado por `examples/regenerate_case_studies.py`. Validación **independiente** sobre un repo público. Fuente `https://github.com/pallets/markupsafe.git`, b2e4d9c David Lord (Sat Sep 27 11:45:34 2025 -0700).
+> Generado por `examples/regenerate_case_studies.py`. Evaluación cruzada entre repositorios distintos sin dependencia operativa declarada. Fuente `https://github.com/pallets/markupsafe.git`, revisión completa `b2e4d9c7687be25695fffbe93a37622302b24fb1`, dirty=`false`.
 
-Objetivo `G=seguridad-y-refactor`, aspectos `['escape', 'native', 'exception', 'test', 'config']`.
+Objetivo `G=seguridad-y-refactor`, aspectos `['escape', 'native', 'exception', 'test', 'config']`. `independence_class=independent`, perfil semántico explícito `minilm-v1`.
 
 ## Extracción
 
@@ -15,11 +15,11 @@ Objetivo `G=seguridad-y-refactor`, aspectos `['escape', 'native', 'exception', '
 ```text
 evidence_count  : 29
 proposition_count: 13
-coverage        : 0.6333
-residual_risk   : 0.14
+coverage        : 0.0
+residual_risk   : 1.0
 complete        : False
 levels_covered  : [0, 1, 2, 3, 4, 5]
-aspect_scores   : {'escape': 0.8333, 'native': 0.0, 'exception': 0.8333, 'test': 0.5, 'config': 1.0}
+aspect_scores   : {'escape': 0.0, 'native': 0.0, 'exception': 0.0, 'test': 0.0, 'config': 0.0}
 ```
 
 ## Interpretación y riesgo residual
@@ -27,3 +27,5 @@ aspect_scores   : {'escape': 0.8333, 'native': 0.0, 'exception': 0.8333, 'test':
 - Independiente: analizador y analizado son proyectos distintos.
 - L3 es simbólico best-effort (no ve C-extensions nativas); `S_semantic` es surrogate léxico.
 - Sin L5 dinámico sobre terceros por defecto (confianza + dependencias de build); el extractor está disponible bajo `analyze_path(run_dynamic=True)`.
+
+_Manifest de entradas fijadas: `sha256:071a85c195e90e7728e21cea8c0bb68fa413cd8103102d24bc97a2ebd357f53a` (perfil semántico, revisión del target, evaluador, frescura y presupuesto)._
