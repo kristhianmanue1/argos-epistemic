@@ -1,14 +1,14 @@
 # Plan técnico de remediación del pipeline probatorio de Argos
 
-**Fecha:** 2026-08-05  
+**Fecha:** 2026-08-05<br>
 **Estado:** listo para revisión y ejecución incremental; ningún cambio técnico descrito
-se considera implementado por la existencia de este documento  
-**Base verificada:** `argos@d31ba8b216c0779b561b4e3660bcf687dd00578b`  
+se considera implementado por la existencia de este documento<br>
+**Base verificada:** `argos@d31ba8b216c0779b561b4e3660bcf687dd00578b`<br>
 **Audiencia:** agentes de IA que implementan, revisan o verifican cambios; personas
-responsables de arquitectura, documentación y releases  
+responsables de arquitectura, documentación y releases<br>
 **Relación con otros planes:** especializa la remediación inmediata descrita por
 `examples/plan-mejoras-argos-post-evaluaciones-2026-08-03.md`; no sustituye el
-roadmap de producto  
+roadmap de producto<br>
 **Advertencia de worktree:** al redactar este plan existían cambios locales ajenos
 en `bench/real_report.md` y `bench/real_repos.py`. Los agentes deben preservarlos,
 atribuirlos a su propietario y no incorporarlos incidentalmente.
