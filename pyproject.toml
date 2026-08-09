@@ -36,7 +36,7 @@ Changelog = "https://github.com/kristhianmanue1/argos-epistemic/releases"
 [project.optional-dependencies]
 dev = [
     "pytest>=8",
-    "an-kla-memory @ git+https://github.com/kristhianmanue1/an-kla-memory.git@v0.1.0-beta.6",
+    "an-kla-memory @ git+https://github.com/kristhianmanue1/an-kla-memory.git@v0.1.0-beta.11",
     "ruff>=0.6",
     "mypy>=1.11",
     "setuptools>=77.0.3",
