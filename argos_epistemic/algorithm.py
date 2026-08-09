@@ -53,6 +53,9 @@ class Budget:
     _consumed_charges: dict[str, tuple[int, int, float, float]] = field(
         default_factory=dict, init=False, repr=False, compare=False
     )
+    _pending_charge_receipts: dict[object, tuple[int, int, float, float]] = field(
+        default_factory=dict, init=False, repr=False, compare=False
+    )
 
     def has_capacity(self) -> bool:
         return self.tokens_remaining > 0 and self.tool_remaining > 0
@@ -71,13 +74,38 @@ class Budget:
         self.latency_remaining -= cost.latency
         self.compute_remaining -= cost.compute
 
-    def record_consumed_charge(self, charge_id: str, cost: Cost) -> None:
-        self._consumed_charges[charge_id] = (
+    def _consume_with_receipt(self, cost: Cost) -> object | None:
+        if not self.can_afford(cost):
+            return None
+        self.consume(cost)
+        receipt = object()
+        self._pending_charge_receipts[receipt] = (
             cost.tokens,
             cost.tool,
             cost.latency,
             cost.compute,
         )
+        return receipt
+
+    def _record_consumed_charge(
+        self, charge_id: str, cost: Cost, receipts: tuple[object, ...]
+    ) -> bool:
+        if len(receipts) != len(set(receipts)):
+            return False
+        receipt_costs = [self._pending_charge_receipts.get(receipt) for receipt in receipts]
+        if any(item is None for item in receipt_costs):
+            return False
+        encoded = (cost.tokens, cost.tool, cost.latency, cost.compute)
+        observed = tuple(
+            sum(item[index] for item in receipt_costs if item is not None)
+            for index in range(4)
+        )
+        if observed != encoded:
+            return False
+        for receipt in receipts:
+            del self._pending_charge_receipts[receipt]
+        self._consumed_charges[charge_id] = encoded
+        return True
 
     def consume_once(self, charge_id: str, cost: Cost) -> bool:
         encoded = (cost.tokens, cost.tool, cost.latency, cost.compute)
@@ -939,22 +967,27 @@ def production_sources_met(
     propositions: Iterable[Proposition],
     aspects: list[dict[str, Any]],
 ) -> bool:
-    """Every required aspect has >= 1 supporting proposition from production code.
+    """Every required aspect has >= 1 support from a primary probative source.
 
     Anti-overclaim sibling of ``min_sources_met``: it is not enough to amass
     peripheral evidence (docs, examples, config, typing stubs), because such
     artifacts talk *about* an aspect without being the implementation (MODEL.md
     §4 levels). When L3 data is available, an aspect counts as satisfied for
     ``complete``/``should_stop`` only if at least one positive proposition rests
-    on a production (``impact > 0``) artifact. This kills the overclaim where the
-    dense linker over-enlaza docs/examples and saturates coverage while recovering
-    none of the implementation gold.
+    on production code (``impact > 0``) or is the output of a validated direct
+    verifier. The latter matters for claims whose primary source is a manifest,
+    not executable code. Semantic mentions and explicit artifact declarations
+    still cannot pass this gate merely by living in config or documentation.
     """
     if not aspects:
         return True
     by_aspect: dict[str, set[str]] = {}
     for prop in propositions:
-        if prop.relation == "supports" and prop.polarity > 0 and prop.impact > 0.0:
+        if (
+            prop.relation == "supports"
+            and prop.polarity > 0
+            and (prop.impact > 0.0 or bool(prop.verification_result_id))
+        ):
             by_aspect.setdefault(prop.aspect, set()).add(prop.evidence_id)
     return all(by_aspect.get(a["name"], set()) for a in aspects)
 
@@ -1687,7 +1720,7 @@ def _verifier_targets(
     for prop in propositions:
         if prop.relation == "supports" and prop.polarity > 0:
             by_aspect.setdefault(prop.aspect, set()).add(prop.evidence_id)
-            if prop.impact > 0.0:
+            if prop.impact > 0.0 or prop.verification_result_id:
                 production.setdefault(prop.aspect, set()).add(prop.evidence_id)
     unsupported = [n for n in names if not by_aspect.get(n)]
     under_corroborated = [
@@ -1721,6 +1754,14 @@ def _verifier_targets(
         "contradicted_claims": contradicted,
         "min_sources_per_aspect": min_sources,
     }
+
+
+def _goal_target_revision(goal: dict[str, Any]) -> str:
+    """Return an explicit textual revision without coercing hostile values."""
+    value = goal.get("target_revision", "")
+    return value if isinstance(value, str) and value.strip() else ""
+
+
 """What each proposed next_action can and cannot resolve.
 
 Only ``enable_probative_verifier`` touches the probative reason codes, because
@@ -1762,11 +1803,12 @@ def synthesize_report(
     )
     no_negative = not any(p.relation == "refutes" for p in propositions)
     no_critical_conflicts = not conflicts.critical()
+    evaluated_revision = _goal_target_revision(goal)
     sources_met = min_sources_met(
         propositions,
         aspects,
         int(goal.get("min_sources_per_aspect", 2)),
-        str(goal.get("target_revision", "") or ""),
+        evaluated_revision,
     )
     production_met = (
         not (goal.get("require_production_evidence", True) and system_has_production(system))
@@ -1894,7 +1936,7 @@ def synthesize_report(
         "source_independence": {
             "profile": INDEPENDENCE_PROFILE,
             "required_sources": int(goal.get("min_sources_per_aspect", 2)),
-            "evaluated_target_revision": str(goal.get("target_revision", "") or ""),
+            "evaluated_target_revision": evaluated_revision,
             "claims": [
                 {
                     "aspect": aspect,
@@ -1902,7 +1944,7 @@ def synthesize_report(
                     **independence_report(
                         sources,
                         int(goal.get("min_sources_per_aspect", 2)),
-                        str(goal.get("target_revision", "") or ""),
+                        evaluated_revision,
                         claim_key,
                     ),
                 }
@@ -2071,7 +2113,7 @@ def _admit_dependency_verification(
             0,
         )
     required_aspects = frozenset(aspect["name"] for aspect in derive_goal_aspects(goal))
-    target_revision = str(goal.get("target_revision", "") or "")
+    target_revision = _goal_target_revision(goal)
     if any(
         result.aspect not in required_aspects or result.target_revision != target_revision
         for result in outcome.results
@@ -2143,7 +2185,7 @@ def analyze_system(
     propositions = PropositionStore()
     required_aspects = derive_goal_aspects(goal)
     aspect_names = [a["name"] for a in required_aspects]
-    evaluated_revision = str(goal.get("target_revision", "") or "")
+    evaluated_revision = _goal_target_revision(goal)
     dependency_verification, dep_results, dependency_tokens, dependency_tool = (
         _admit_dependency_verification(dependency_verification_outcome, goal, budget)
     )

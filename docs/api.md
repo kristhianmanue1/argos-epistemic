@@ -220,8 +220,10 @@ sobre el protocolo de D.
   solicitados por el propio requirement (`pkg[extra1]`), no el grupo.
 - `make_pep621_verifier(target)`: comprueba `pyproject.toml` con `tomllib`.
   Ignora `build-system.requires` y toda tabla `tool.*` — ninguna representa una
-  dependencia runtime bajo PEP 621. Si `dependencies` está en `project.dynamic`,
-  nunca produce `refutes` por ausencia estática.
+  dependencia runtime bajo PEP 621. Si `dependencies` u
+  `optional-dependencies` están en `project.dynamic`, nunca produce `refutes`
+  desde ese campo; declararlo simultáneamente estático y dinámico se diagnostica
+  como conflicto. Un `dynamic` con tipo inválido degrada todo el parseo.
 - `make_pep508_verifier(target)`: comprueba un archivo estilo
   `requirements.txt` con `packaging.requirements.Requirement`. Distingue
   requisitos PEP 508 de directivas de pip (`-r`, `-c`, `-e`, `--index-url`,
@@ -292,8 +294,10 @@ report = analyze_path(root, goal=goal, budget=budget)
   como colección inválida (diagnóstico `invalid_dependency_targets_collection`)
   en vez de tratarse silenciosamente como «no solicitado». Una lista vacía
   válida activa la frontera sin diagnóstico y sin trabajo.
-- **`target_revision` obligatorio**: ausente o vacío produce
-  `missing_target_revision` y ningún verificador se ejecuta.
+- **`target_revision` obligatorio y textual**: ausente, vacío o no textual
+  produce `missing_target_revision` y ningún verificador se ejecuta. La admisión
+  genérica tampoco usa `str()` para convertir revisiones hostiles: una revisión
+  no textual se evalúa como ausente y no puede coincidir con un resultado.
 - **Alcance real del goal, no el nombre propio del target**: cada target se
   compara contra los aspectos REALES del goal (`derive_goal_aspects`). Un
   target cuyo `canonical_name` no pertenece a esos aspectos nunca se ejecuta —
@@ -312,6 +316,10 @@ report = analyze_path(root, goal=goal, budget=budget)
 - **Costo cobrado únicamente por trabajo real**: un manifiesto inexistente, un
   symlink rechazado o un target sin ningún manifiesto disponible para
   resolverse **cuestan cero** — no hay lectura, no hay ejecución, no hay cargo.
+  Antes de leer, la frontera deriva del presupuesto actual el máximo de bytes
+  asequible; sin una herramienta y el mínimo de 10 tokens, `os.read` ni siquiera
+  se invoca. Un tamaño `fstat()` superior a esa capacidad se rechaza antes de
+  leer, y un crecimiento concurrente se corta al superar el límite asequible.
   `fstat()` sobre el descriptor ya abierto permite rechazar temprano un tamaño
   declarado sobre el límite, pero el cargo usa el total de bytes realmente
   leído hasta EOF. La lectura es binaria, repite `os.read` ante short reads y
@@ -321,18 +329,20 @@ report = analyze_path(root, goal=goal, budget=budget)
   presupuesto no cubre el costo de resolverlo contra TODOS los manifiestos
   disponibles, el target completo se omite con diagnóstico
   `dependency_target_budget_exhausted:<nombre>` — nunca una ejecución parcial.
-  `executions == len(results)`, y el componente de `charged_tool` atribuible a
-  targets es `accepted_targets_ejecutados × manifiestos_disponibles` —
-  reconstruible a partir de los campos públicos del `DependencyVerificationOutcome`.
-- **Lectura symlink-safe en una sola apertura fail-closed**: `os.open(...,
-  O_NOFOLLOW)` hace que el rechazo de
+  `executions == len(results)` y `charged_tool` se reconstruye como lecturas de
+  manifests cobradas más ejecuciones publicadas; el costo en tokens se
+  reconstruye desde bytes leídos más el cargo fijo de esas ejecuciones.
+- **Lectura symlink-safe y no bloqueante en una sola apertura fail-closed**:
+  `os.open(..., O_NOFOLLOW | O_NONBLOCK)` hace que el rechazo de
   symlink sea parte del propio `open()` atómico — no hay una comprobación
   `is_symlink()` seguida de una apertura separada que un reemplazo
   concurrente pudiera colar. `fstat()` se hace sobre el descriptor ya abierto,
   nunca sobre una ruta stat-eada por separado. Symlinks internos, externos o
   rotos se rechazan igual — `<archivo>:symlink_rejected` — nunca se sigue un
-  enlace en silencio. Si la plataforma no ofrece `O_NOFOLLOW`, la lectura no
-  se intenta y produce `<archivo>:symlink_protection_unavailable`.
+  enlace en silencio. `O_NONBLOCK` evita que un FIFO nombrado como manifiesto
+  bloquee antes de que `fstat()` lo descarte como no regular. Si la plataforma
+  no ofrece alguno de esos flags, la lectura no se intenta y produce un
+  diagnóstico explícito.
 - **Costo íntegramente visible en el reporte**: `report["cost"]["phases"]
   ["dependency_verification"]` expone `tokens`, `tools`, `manifests_inspected`
   y `executions`; los totales `cost.estimated_tokens`/`observed_tokens`
@@ -390,7 +400,12 @@ report = analyze_path(root, goal=goal, budget=budget)
     externo debe ser asequible o produce
     `dependency_verification_budget_exhausted` con cero resultados admitidos.
     Repetir además sus resultados en `verification_results` no multiplica
-    proposiciones porque se deduplican por `result_id`.
+    proposiciones porque se deduplican por `result_id`. El estado prepagado sólo
+    puede consolidarse desde recibos internos creados al descontar realmente
+    cada subcargo; un llamador no puede marcarlo pagado mediante una API pública.
+    La identidad content-addressed prueba consistencia, **no autenticidad**:
+    resultados/outcomes persistidos o de terceros requieren una attestation
+    confiable antes de tratarlos como autoridad.
 
 Los conflictos de la evidencia admitida inicialmente (`verification_results`)
 se calculan **antes** de la primera comprobación de umbrales/capacidad del
@@ -407,6 +422,13 @@ del resultado pero **no** crea un segundo testigo dentro de la misma familia.
 `AUTHORIZED_INDEPENDENCE_CLASSES` está vacío por defecto: una clase arbitraria
 no relaja la regla de familia. `goal["target_revision"]` alimenta el gate; sin
 ella, `min_sources > 1` falla cerrado.
+
+El gate de evidencia primaria distingue una mención periférica de una prueba:
+cuando existe grafo L3, acepta soporte con `impact > 0` o un
+`VerificationResult` validado y convertido por la frontera única. Esto permite
+que una declaración de dependencia quede demostrada por sus manifests —su
+fuente primaria real— sin permitir que documentación/config enlazada sólo por
+relevancia satisfaga el gate.
 
 El target analizado no puede declarar con autoridad `verifier_profile`,
 `execution_id`, `independence_group` ni huellas de raíz: los calcula la

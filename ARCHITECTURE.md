@@ -106,9 +106,15 @@ contadores, manifests, bytes leídos, costo reconstruible y la identidad
 content-addressed del cargo; después cobra ese cargo una sola vez al `Budget` y
 admite exactamente los resultados del mismo outcome. Duplicarlos además por la
 entrada genérica colapsa por `result_id`.
-Los manifests se abren con `O_NOFOLLOW`, se leen hasta EOF mediante un bucle
-acotado y se cobran por bytes reales; sin protección atómica de symlinks la
-plataforma falla cerrada.
+El cobro previo se consolida únicamente desde recibos internos emitidos al
+descontar realmente cada subcargo; no existe una API pública para declarar un
+cargo como pagado. Tanto `result_id` como la identidad del outcome demuestran
+integridad interna, **no autenticidad del productor**: aceptar resultados
+persistidos o de terceros como autoridad requeriría una attestation confiable
+fuera de este protocolo.
+Los manifests se abren con `O_NOFOLLOW | O_NONBLOCK`, se leen hasta EOF mediante
+un bucle acotado y se cobran por bytes reales; sin protección atómica de
+symlinks o apertura no bloqueante la plataforma falla cerrada.
 
 La independencia **no** es un hash de `perfil + método + raíz`: ese cálculo
 haría que dos verificadores distintos sobre el mismo archivo parecieran
@@ -136,6 +142,11 @@ comparten huella de raíz.
 La corroboración se evalúa por claim normalizado: soportes de claims distintos
 del mismo aspecto no se suman. Un aspecto queda satisfecho cuando al menos uno
 de sus claims alcanza el mínimo de grupos independientes exigido.
+
+El gate de evidencia primaria admite producción con `impact > 0` y resultados
+probatorios directos ya validados. Esta segunda vía es necesaria para
+propiedades cuyo origen normativo es un manifest; no se extiende a `mentions`
+ni a relaciones inferidas por relevancia.
 
 La agregación consume claims ya tipados, pero **no es homogénea** y conviene no
 describirla como si lo fuera:

@@ -290,8 +290,18 @@ def parse_pyproject_dependencies(content: str) -> ParseOutcome:
     diagnostics: list[str] = []
     direct_reference_count = 0
     dynamic = project.get("dynamic")
+    if dynamic is not None and (
+        not isinstance(dynamic, list)
+        or any(not isinstance(field, str) for field in dynamic)
+    ):
+        return ParseOutcome(
+            fully_inspected=False,
+            structurally_valid=False,
+            diagnostics=("invalid_dynamic_type",),
+        )
     dynamic_fields = set(dynamic) if isinstance(dynamic, list) else set()
     core_dynamic = "dependencies" in dynamic_fields
+    optional_dynamic = "optional-dependencies" in dynamic_fields
 
     entries: list[DeclaredDependency] = []
     raw_core = project.get("dependencies")
@@ -307,7 +317,9 @@ def parse_pyproject_dependencies(content: str) -> ParseOutcome:
                 entries.append(line)
 
     raw_optional = project.get("optional-dependencies")
-    if isinstance(raw_optional, dict):
+    if optional_dynamic and raw_optional is not None:
+        diagnostics.append("dynamic_and_static_conflict")
+    elif isinstance(raw_optional, dict):
         for extra_name, group in raw_optional.items():
             scope = f"extra:{_canonical_name(str(extra_name))}"
             for line, is_direct_reference, problem in _parse_pep621_entries(group, scope=scope):
@@ -320,9 +332,11 @@ def parse_pyproject_dependencies(content: str) -> ParseOutcome:
     elif raw_optional is not None:
         diagnostics.append("invalid_optional_dependencies_type")
 
-    fully_inspected = not core_dynamic
+    fully_inspected = not (core_dynamic or optional_dynamic)
     if core_dynamic:
         diagnostics.append("dependencies_declared_dynamic")
+    if optional_dynamic:
+        diagnostics.append("optional_dependencies_declared_dynamic")
     return ParseOutcome(
         entries=tuple(entries),
         fully_inspected=fully_inspected,
@@ -592,15 +606,15 @@ class ManifestRead:
 
     ``problem`` (when set) is one of: ``not_found``, ``exceeds_size_limit``,
     ``encoding_error``, ``unreadable``, ``symlink_rejected``,
-    ``symlink_protection_unavailable``, ``not_a_regular_file``,
-    ``budget_exhausted``.
+    ``symlink_protection_unavailable``, ``nonblocking_open_unavailable``,
+    ``not_a_regular_file``, ``budget_exhausted``.
     """
 
     content: str | None
     problem: str | None
     size: int = 0
-    """Real bytes read (0 when ``content`` is ``None``) - the number cost is
-    charged against, never a preceding stat() estimate (P1-4)."""
+    """Observed bytes for diagnostics. It is cost-bearing only when ``charged``
+    is true; ``manifest_bytes_read`` never records an uncharged value."""
     charged: bool = False
 
 
@@ -613,7 +627,9 @@ def _open_manifest_fd(path: Any) -> tuple[int | None, str | None]:
     """
     if not hasattr(os, "O_NOFOLLOW"):
         return None, "symlink_protection_unavailable"
-    flags = os.O_RDONLY | os.O_NOFOLLOW
+    if not hasattr(os, "O_NONBLOCK"):
+        return None, "nonblocking_open_unavailable"
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
     try:
         return os.open(str(path), flags), None
     except FileNotFoundError:
@@ -626,7 +642,11 @@ def _open_manifest_fd(path: Any) -> tuple[int | None, str | None]:
         return None, "unreadable"
 
 
-def _read_manifest_bounded(path: Any, charge: Any) -> ManifestRead:
+def _read_manifest_bounded(
+    path: Any,
+    charge: Any,
+    max_affordable_bytes: int | None = None,
+) -> ManifestRead:
     """Read a manifest file's FULL bytes, or refuse outright - via ONE opened
     file descriptor, never a separate check-path then open-path sequence.
 
@@ -659,11 +679,18 @@ def _read_manifest_bounded(path: Any, charge: Any) -> ManifestRead:
             return ManifestRead(None, "not_a_regular_file")
         if st.st_size > MAX_MANIFEST_BYTES:
             return ManifestRead(None, "exceeds_size_limit")
+        read_cap = MAX_MANIFEST_BYTES
+        if max_affordable_bytes is not None:
+            if max_affordable_bytes < 0:
+                return ManifestRead(None, "budget_exhausted")
+            read_cap = min(MAX_MANIFEST_BYTES, max_affordable_bytes)
+            if st.st_size > read_cap:
+                return ManifestRead(None, "budget_exhausted", size=st.st_size)
         chunks: list[bytes] = []
         total = 0
-        while total <= MAX_MANIFEST_BYTES:
+        while total <= read_cap:
             try:
-                chunk = os.read(fd, MAX_MANIFEST_BYTES + 1 - total)
+                chunk = os.read(fd, read_cap + 1 - total)
             except OSError:
                 return ManifestRead(None, "unreadable")
             if not chunk:
@@ -675,6 +702,8 @@ def _read_manifest_bounded(path: Any, charge: Any) -> ManifestRead:
     raw = b"".join(chunks)
     if len(raw) > MAX_MANIFEST_BYTES:
         return ManifestRead(None, "exceeds_size_limit", size=len(raw))
+    if max_affordable_bytes is not None and len(raw) > max_affordable_bytes:
+        return ManifestRead(None, "budget_exhausted", size=len(raw))
     if not charge(len(raw)):
         return ManifestRead(None, "budget_exhausted", size=len(raw))
     try:
@@ -781,15 +810,23 @@ def _dependency_outcome_charge_id(outcome: DependencyVerificationOutcome) -> str
 
 
 def _finalize_dependency_outcome(
-    outcome: DependencyVerificationOutcome, budget: Any
+    outcome: DependencyVerificationOutcome,
+    budget: Any,
+    receipts: tuple[object, ...] = (),
 ) -> DependencyVerificationOutcome:
     charge_id = _dependency_outcome_charge_id(outcome)
     finalized = replace(outcome, budget_charge_id=charge_id)
-    recorder = getattr(budget, "record_consumed_charge", None)
+    recorder = getattr(budget, "_record_consumed_charge", None)
     if callable(recorder):
         from .algorithm import Cost
 
-        recorder(charge_id, Cost(tokens=outcome.charged_tokens, tool=outcome.charged_tool))
+        recorded = recorder(
+            charge_id,
+            Cost(tokens=outcome.charged_tokens, tool=outcome.charged_tool),
+            receipts,
+        )
+        if not recorded:
+            raise RuntimeError("dependency_charge_receipt_mismatch")
     return finalized
 
 
@@ -926,6 +963,17 @@ def verify_dependency_targets(
             budget,
         )
 
+    if budget is not None:
+        from .algorithm import Budget
+
+        if not isinstance(budget, Budget):
+            return _finalize_dependency_outcome(
+                DependencyVerificationOutcome(
+                    (), ("invalid_budget",), (), (), 0, 0, 0, 0, (), 0, 0
+                ),
+                None,
+            )
+
     if not isinstance(target_revision, str) or not target_revision.strip():
         return _empty(("missing_target_revision",))
     if not isinstance(targets, list | tuple):
@@ -979,6 +1027,7 @@ def verify_dependency_targets(
     root_path = Path(root)
     charged_tokens = 0
     charged_tool = 0
+    charge_receipts: list[object] = []
 
     def _charge(cost_tokens: int, cost_tool: int) -> bool:
         nonlocal charged_tokens, charged_tool
@@ -989,9 +1038,10 @@ def verify_dependency_targets(
         from .algorithm import Cost
 
         cost = Cost(tokens=cost_tokens, tool=cost_tool)
-        if not budget.can_afford(cost):
+        receipt = budget._consume_with_receipt(cost)
+        if receipt is None:
             return False
-        budget.consume(cost)
+        charge_receipts.append(receipt)
         charged_tokens += cost_tokens
         charged_tool += cost_tool
         return True
@@ -1003,8 +1053,17 @@ def verify_dependency_targets(
         descriptor, never a stale path or ``fstat()`` estimate.
         """
         path = root_path / filename
+        max_affordable_bytes = None
+        if budget is not None:
+            max_affordable_bytes = (
+                min(MAX_MANIFEST_BYTES, budget.tokens_remaining * 4 + 3)
+                if budget.tool_remaining >= 1 and budget.tokens_remaining >= 10
+                else -1
+            )
         read = _read_manifest_bounded(
-            path, lambda size: _charge(max(10, size // 4), 1)
+            path,
+            lambda size: _charge(max(10, size // 4), 1),
+            max_affordable_bytes=max_affordable_bytes,
         )
         if read.problem is not None and read.problem != "not_found":
             diagnostics.append(f"{filename}:{read.problem}")
@@ -1090,6 +1149,7 @@ def verify_dependency_targets(
             charged_tool,
         ),
         budget,
+        tuple(charge_receipts),
     )
 
 

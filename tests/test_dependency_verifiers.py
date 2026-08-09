@@ -183,6 +183,35 @@ dependencies = ["requests>=2.0"]
     assert "dynamic_and_static_conflict" in result.limitations
 
 
+def test_dynamic_optional_dependencies_never_produce_refutes():
+    conflicting = """
+[project]
+name = "demo"
+dynamic = ["optional-dependencies"]
+
+[project.optional-dependencies]
+test = ["requests>=1.0"]
+"""
+    target = DependencyTarget(name="requests", specifier=">=2.0", scope="extra:test")
+    result = _pep621(conflicting, target)
+    assert result.outcome == UNKNOWN
+    assert "dynamic_and_static_conflict" in result.limitations
+    assert "optional_dependencies_declared_dynamic" in result.limitations
+
+
+def test_invalid_dynamic_field_type_degrades_instead_of_refuting():
+    invalid = """
+[project]
+name = "demo"
+dynamic = "dependencies"
+dependencies = ["requests>=1.0"]
+"""
+    target = DependencyTarget(name="requests", specifier=">=2.0", scope="core")
+    result = _pep621(invalid, target)
+    assert result.outcome == DEGRADED
+    assert "invalid_dynamic_type" in result.limitations
+
+
 # --------------------------------------------------------------------------
 # 7. TOML invalid
 # --------------------------------------------------------------------------
@@ -699,6 +728,37 @@ def test_end_to_end_liveness_through_analyze_path_reaches_complete_true():
     assert report["coverage"] >= 0.95
     assert report["residual_risk"] <= 0.05
     assert report["complete"] is True
+
+
+def test_dependency_liveness_survives_presence_of_real_production_callgraph(tmp_path):
+    from argos_epistemic import Budget, analyze_path
+
+    _write_fixture(tmp_path, ["requests>=2.0"], ["requests>=2.0"])
+    (tmp_path / "app.py").write_text(
+        "def helper():\n"
+        "    return 1\n\n"
+        "def main():\n"
+        "    return helper()\n\n"
+        "main()\n",
+        encoding="utf-8",
+    )
+    goal = {
+        "name": "dependency-audit",
+        "aspects": ["requests"],
+        "dependency_targets": [
+            {"name": "requests", "specifier": ">=2.0", "scope": "core"}
+        ],
+        "target_revision": "rev-1",
+    }
+    report = analyze_path(
+        tmp_path,
+        goal=goal,
+        budget=Budget(tokens_remaining=10000, tool_remaining=50),
+    )
+    assert report["coverage"] == 1.0
+    assert report["residual_risk"] == 0.0
+    assert report["complete"] is True
+    assert "missing_production_evidence" not in report["completion"]["reason_codes"]
 
 
 def test_end_to_end_mutation_retracts_completion():
@@ -2427,6 +2487,67 @@ def test_dependency_outcome_precharged_to_same_budget_is_not_charged_twice(tmp_p
     assert (budget.tokens_remaining, budget.tool_remaining) == after_verification
 
 
+def test_dependency_charge_cannot_be_marked_paid_without_real_consumption(tmp_path):
+    from argos_epistemic.algorithm import Budget, Cost, analyze_system
+    from argos_epistemic.dependency_verifiers import verify_dependency_targets
+
+    _write_fixture(tmp_path, ["requests>=2.0"], ["requests>=2.0"])
+    outcome = verify_dependency_targets(
+        tmp_path,
+        [{"name": "requests", "specifier": ">=2.0", "scope": "core"}],
+        "rev-1",
+        None,
+        goal_aspects=("requests",),
+    )
+    budget = Budget(tokens_remaining=1, tool_remaining=1)
+    fake_receipt = object()
+    assert budget._record_consumed_charge(
+        outcome.budget_charge_id,
+        Cost(tokens=outcome.charged_tokens, tool=outcome.charged_tool),
+        (fake_receipt,),
+    ) is False
+    report = analyze_system(
+        {"name": "x", "artifacts": []},
+        {"name": "g", "aspects": ["requests"], "target_revision": "rev-1"},
+        budget,
+        dependency_verification_outcome=outcome,
+    )
+    assert report["proposition_count"] == 0
+    assert "dependency_verification_budget_exhausted" in report["dependency_verification"]["diagnostics"]
+    assert (budget.tokens_remaining, budget.tool_remaining) == (1, 1)
+
+
+@pytest.mark.parametrize("invalid_revision", [7, True, object()])
+def test_non_textual_goal_revision_never_matches_a_textual_result(invalid_revision):
+    from argos_epistemic.algorithm import Budget, analyze_system
+
+    target = DependencyTarget(name="requests", specifier=">=2.0", scope="core")
+    result = _pep621(PYPROJECT_BASIC, target, revision=str(invalid_revision))
+    report = analyze_system(
+        {"name": "x", "artifacts": []},
+        {"name": "g", "aspects": ["requests"], "target_revision": invalid_revision},
+        Budget(tokens_remaining=0, tool_remaining=0),
+        verification_results=[result],
+    )
+    assert report["proposition_count"] == 0
+    assert "revision_mismatch" in report["verification_admission"]["verification_rejection_reasons"]
+
+
+def test_hostile_goal_revision_is_not_coerced_with_str():
+    from argos_epistemic.algorithm import Budget, analyze_system
+
+    class HostileRevision:
+        def __str__(self):
+            raise AssertionError("target revision must not be coerced")
+
+    report = analyze_system(
+        {"name": "x", "artifacts": []},
+        {"name": "g", "aspects": ["requests"], "target_revision": HostileRevision()},
+        Budget(tokens_remaining=0, tool_remaining=0),
+    )
+    assert report["proposition_count"] == 0
+
+
 def test_bounded_manifest_reader_retries_short_reads_until_eof(tmp_path, monkeypatch):
     import os
 
@@ -2484,6 +2605,49 @@ def test_manifest_reader_fails_closed_when_atomic_symlink_guard_is_unavailable(t
     result = _read_manifest_bounded(path, lambda _size: True)
     assert result.content is None
     assert result.problem == "symlink_protection_unavailable"
+
+
+def test_manifest_open_is_nonblocking_before_regular_file_check(tmp_path, monkeypatch):
+    import os
+
+    from argos_epistemic.dependency_verifiers import _read_manifest_bounded
+
+    path = tmp_path / "pyproject.toml"
+    path.write_text('[project]\nname="x"\n', encoding="utf-8")
+    real_open = os.open
+
+    def guarded_open(candidate, flags):
+        assert flags & os.O_NONBLOCK
+        return real_open(candidate, flags)
+
+    monkeypatch.setattr(os, "open", guarded_open)
+    result = _read_manifest_bounded(path, lambda _size: True)
+    assert result.problem is None
+
+
+def test_zero_budget_rejects_manifests_before_any_read(tmp_path, monkeypatch):
+    import os
+
+    from argos_epistemic.algorithm import Budget
+    from argos_epistemic.dependency_verifiers import verify_dependency_targets
+
+    _write_fixture(tmp_path, ["requests>=2.0"], ["requests>=2.0"])
+
+    def forbidden_read(*_args, **_kwargs):
+        raise AssertionError("manifest bytes must not be read without budget")
+
+    monkeypatch.setattr(os, "read", forbidden_read)
+    outcome = verify_dependency_targets(
+        tmp_path,
+        [{"name": "requests", "specifier": ">=2.0", "scope": "core"}],
+        "rev-1",
+        Budget(tokens_remaining=0, tool_remaining=0),
+        goal_aspects=("requests",),
+    )
+    assert outcome.results == ()
+    assert outcome.charged_tokens == 0
+    assert outcome.charged_tool == 0
+    assert any("budget_exhausted" in item for item in outcome.diagnostics)
 
 
 def test_manifest_growth_past_cap_after_fstat_is_rejected_without_charge(tmp_path, monkeypatch):
