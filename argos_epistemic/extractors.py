@@ -21,7 +21,7 @@ from .behavior import behavior_artifact, behavior_summary, extract_behavior
 from .bundle import INVENTORY_SCHEMA
 from .callgraph import CallGraph, build_multi_call_graph, module_metrics
 from .canonical import CANONICALIZATION_PROFILE, fingerprinted_document
-from .dense_semantic import dense_semantic, dense_semantic_available
+from .dense_semantic import dense_semantic
 
 DEFAULT_IGNORES = {
     ".ds_store",
@@ -238,11 +238,21 @@ def embedding_semantic(artifact_text: str, goal_text: str) -> float:
 
 
 def default_semantic():
-    """Linker semántico por defecto: denso (sentence-transformers) si está
-    disponible, si no léxico. Nunca el surrogate de char-n-gramas
-    (``embedding_semantic``), cuyo suelo ~0.5 lo hace no discriminativo y
-    sobre-enlaza artefactos irrelevantes (.gitignore -> 'memory')."""
-    return dense_semantic if dense_semantic_available() else lexical_semantic
+    """Linker semántico por defecto: **siempre** léxico, offline y determinista.
+
+    El backend denso queda fuera del camino por defecto aunque
+    ``sentence-transformers`` esté instalado: cargarlo descarga
+    ``all-MiniLM-L6-v2`` desde Hugging Face, lo que convierte una extracción por
+    defecto en una operación de red no declarada y hace que el resultado dependa
+    de la caché del host. Un backend denso se selecciona explícitamente
+    (``semantic_fn=dense_semantic`` o el perfil ``minilm-v1``) y sólo en
+    contextos donde la red está autorizada.
+
+    Nunca el surrogate de char-n-gramas (``embedding_semantic``), cuyo suelo
+    ~0.5 lo hace no discriminativo y sobre-enlaza artefactos irrelevantes
+    (.gitignore -> 'memory').
+    """
+    return lexical_semantic
 
 
 def default_link_threshold(linker) -> float:
@@ -552,4 +562,53 @@ def analyze_path(
             _deferred(f"L5:{label}", "(dynamic)", 5, 0.85, "test-run", "dynamic",
                       lambda: _unwrap(dynamic_artifact(root_path, timeout=dynamic_timeout)))
         )
-    return analyze_system(system, goal or {}, budget)
+
+    resolved_goal = goal or {}
+    verification_results, dependency_verification_outcome = _resolve_dependency_verification(
+        resolved_goal, root_path, budget
+    )
+
+    return analyze_system(
+        system,
+        resolved_goal,
+        budget,
+        verification_results=verification_results,
+        dependency_verification_outcome=dependency_verification_outcome,
+    )
+
+
+def _resolve_dependency_verification(
+    resolved_goal: dict[str, Any], root_path: Any, budget: Any
+) -> tuple[tuple[Any, ...], Any]:
+    """Run the dependency verifiers when the goal opts in, returning the
+    pair expected by ``analyze_system``. Dependency results travel only inside
+    the typed outcome; the generic result tuple is empty.
+
+    Opt-in is the PRESENCE of the ``"dependency_targets"`` key in the goal, not
+    its truthiness (P1-6): ``dependency_targets=None/0/""`` still opts in and is
+    then classified by the boundary itself (invalid type vs valid-empty), so a
+    caller mistake produces a diagnostic instead of silently doing nothing. The
+    fixture under analysis never declares its own supports/refutes through this
+    path; manifests are read directly from disk (full, bounded, symlink-
+    rejecting), never from ``system["artifacts"]``, which discovery may have
+    truncated.
+
+    The typed outcome is the single carrier for dependency results, report data
+    and content-addressed cost. ``analyze_system`` validates it, consumes the
+    charge exactly once and sends its results through the generic admission
+    function, whose sole conversion remains ``proposition_from_verification``.
+    """
+    if "dependency_targets" not in resolved_goal:
+        return (), None
+    from .algorithm import derive_goal_aspects
+    from .dependency_verifiers import verify_dependency_targets
+
+    goal_aspect_names = tuple(a["name"] for a in derive_goal_aspects(resolved_goal))
+    outcome = verify_dependency_targets(
+        root_path,
+        resolved_goal["dependency_targets"],
+        resolved_goal.get("target_revision", ""),
+        budget,
+        goal_aspect_names,
+    )
+    return (), outcome

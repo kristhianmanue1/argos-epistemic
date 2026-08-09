@@ -54,6 +54,7 @@ def test_blocking_inventory_degradation_prevents_complete():
         "inventory": {
             "degradations": ["artifact_cap_reached"],
             "exclusions": [{"id": "omitted.py", "estimated_bytes": 400}],
+            "files_discovered": 12,
         },
         "artifacts": [
             {
@@ -83,6 +84,16 @@ def test_blocking_inventory_degradation_prevents_complete():
             "reason": "artifact_cap_reached",
             "estimated_tokens": 100,
             "authorization_required": True,
+            "addresses_reason_codes": ["artifact_cap_reached"],
+            "remaining_blockers": [],
+            "expected_effect": (
+                "widen the observed corpus; surfaces more candidate evidence but "
+                "creates no probative mass by itself"
+            ),
+            "capability_required": "retrieval_only",
+            "parameter": "artifact_cap",
+            "target_value": 12,
+            "sufficient_if_successful": True,
         }
     ]
 
@@ -92,13 +103,17 @@ def test_no_affordable_action_is_explained():
     completion = report["completion"]
     assert completion["termination_reason"] == "no_affordable_actions"
     assert "no_affordable_actions" in completion["reason_codes"]
-    assert completion["next_actions"] == [
-        {
-            "action": "increase_budget",
-            "reason": "no_affordable_actions",
-            "authorization_required": True,
-        }
-    ]
+    by_action = {a["action"]: a for a in completion["next_actions"]}
+    budget_action = by_action["increase_budget"]
+    assert budget_action["addresses_reason_codes"] == ["no_affordable_actions"]
+    assert budget_action["remaining_blockers"] == ["insufficient_sources", "threshold_not_met"]
+    assert budget_action["sufficient_if_successful"] is False
+    assert budget_action["capability_required"] == "retrieval_only"
+    # Budget alone cannot manufacture proof, so a verifier proposal accompanies it.
+    verifier = by_action["enable_probative_verifier"]
+    assert verifier["capability_required"] == "probatory_static"
+    assert verifier["addresses_reason_codes"] == ["insufficient_sources", "threshold_not_met"]
+    assert verifier["authorization_required"] is True
 
 
 def test_goal_can_explicitly_accept_a_known_degradation():

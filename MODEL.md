@@ -680,6 +680,56 @@ R(y\mid G)
 $$
 Esta segunda expresión solo es computable cuando existe una aproximación razonable del conjunto candidato.
 Por tanto, para implementación se recomienda la cobertura por aspectos (T_G), ya que no presupone conocer toda la evidencia posible.
+## 12.1 Corroboración e independencia entre fuentes
+Repetir una observación no la confirma. La corroboración se evalúa **por claim
+normalizado**, no por aspecto: dos soportes sobre afirmaciones distintas del
+mismo aspecto no se suman, porque coincidir sobre cosas diferentes no es
+corroborar.
+La identidad de claim se obtiene bajo un perfil de normalización declarado que
+pliega mayúsculas y espacios. **No** demuestra equivalencia semántica: dos
+redacciones distintas de la misma idea siguen siendo claims distintos. La
+dirección del error es deliberada, porque puede separar un claim que debería
+ser uno, pero no puede fusionar claims realmente distintos, que es lo que
+permitiría que evidencia no relacionada se presentara como corroboración.
+Dos resultados son **dependientes** cuando comparten al menos una de estas
+condiciones:
+* una raíz observada, identificada por huella de contenido y no por
+  identificador o alias;
+* una misma ejecución;
+* una misma **familia de instrumento**, salvo una clase de independencia
+  autorizada explícitamente por la frontera. `pep621@1` y `pep621@2` son
+  versiones del mismo testigo, no dos perfiles independientes: la versión se
+  conserva para reproducción y auditoría, y liga la identidad del resultado,
+  pero no crea un segundo testigo;
+* una relación de derivación, incluido un padre externo compartido que no forme
+  parte del conjunto evaluado;
+* un artefacto equivalente por huella aunque su identificador difiera.
+Compartir la raíz sigue implicando dependencia aunque los perfiles de
+verificador sean distintos: dos lecturas del mismo archivo son una sola
+observación. Del mismo modo, un solo instrumento aplicado dos veces es un
+testigo, no dos.
+La independencia debe **demostrarse**, no suponerse. Una fuente sin perfil,
+ejecución, revisión objetivo o raíz observada no puede mostrarse independiente
+de nada y nunca aporta un grupo adicional. Resultados sobre revisiones distintas
+tampoco se corroboran entre sí.
+La independencia no puede reducirse a una huella local del par
+$(perfil, m\acute{e}todo, ra\acute{i}z)$, porque conjuntos de raíces
+parcialmente solapados —$\{x,y\}$ y $\{y,z\}$— producirían huellas distintas
+pese a compartir $y$. Se define como los **componentes conexos** del grafo cuyas
+aristas son las condiciones anteriores, y el recuento de fuentes es el número de
+componentes, nunca el número de salidas.
+Ante procedencia ausente o insuficiente, los resultados se colapsan en un único
+grupo. La duda reduce el recuento; nunca lo aumenta.
+Un aspecto satisface el umbral de fuentes mínimas cuando **al menos uno** de sus
+claims alcanza el número exigido de grupos independientes.
+El recuento se realiza siempre respecto de **un claim normalizado y una revisión
+objetivo explícitos**. Nunca se suman componentes pertenecientes a claims
+distintos: coincidir sobre afirmaciones diferentes no es corroborar una de
+ellas. Las fuentes de otro claim o de otra revisión se ignoran y quedan
+registradas en el diagnóstico, y un identificador de fuente con procedencias
+contradictorias se excluye por completo en lugar de resolverse por orden de
+llegada. En ausencia de claim o de revisión, la corroboración no puede
+demostrarse y el recuento se limita a uno.
 ---
 # 13. Riesgo de error por omisión
 El riesgo asociado a la ausencia de un nivel se expresa como:
@@ -703,6 +753,33 @@ Esto corrige el problema de (L_5):
 * algunos fallos dinámicos tienen baja frecuencia;
 * su severidad puede ser crítica.
 Por tanto, un nivel con baja probabilidad de aportar evidencia puede seguir siendo obligatorio si su riesgo residual es elevado.
+## 13.1 Agregación operativa del riesgo residual
+La forma computable del riesgo agrega dos componentes sobre evidencia
+**probatoria** únicamente, es decir sobre relaciones `supports` y `refutes`:
+$$
+RiskResidual(G)=
+missing+
+(1-missing)\cdot contradiction
+$$
+donde $missing$ es la proporción de aspectos requeridos sin soporte positivo y
+$contradiction$ es la proporción de claims probatorios distintos que contienen
+al menos una refutación, sobre el total de claims probatorios distintos.
+La agregación es **por claim normalizado**, no por volumen de registros: $n$
+lecturas del mismo claim son un claim, no $n$. Contar proposiciones permitiría
+que la corroboración duplicada sepultara una refutación y que los duplicados
+multiplicaran el riesgo.
+De esta forma se siguen, estructuralmente y no por convención, los invariantes:
+* $missing=1$ implica $RiskResidual=1$, porque el segundo término se escala por
+  $(1-missing)=0$; no se requiere un caso especial sobre el número de
+  proposiciones;
+* `mentions` no aparece en ningún numerador ni denominador, de modo que añadir
+  relaciones temáticas no reduce el riesgo ni diluye una refutación;
+* añadir una refutación nunca reduce el riesgo, dado que no puede disminuir
+  $missing$ y sobre el término de contradicción se cumple
+  $\frac{c+1}{n+1}\geq\frac{c}{n}$ para todo $c\leq n$;
+* sólo el soporte positivo vigente reduce el componente de evidencia ausente.
+La calibración final de esta agregación es una decisión normativa sujeta a
+aprobación; los invariantes anteriores no dependen de los pesos elegidos.
 ---
 # 14. Temporalidad y frescura
 Todos los niveles pueden evolucionar, aunque con tasas diferentes.
@@ -770,9 +847,10 @@ considerando además:
 $$
 RiskReduction(a)
 $$
-Por tanto:
+Una formulación temprana agregaba confianza esperada junto a cobertura y
+reducción de riesgo:
 $$
-Utility(a)=
+Utility_{\mathrm{hist}}(a)=
 \frac{
 \alpha\mathbb{E}[\Delta Cov]
 +
@@ -783,10 +861,19 @@ Utility(a)=
 WeightedCost(a)
 }
 $$
-y:
+> **Histórica, no operativa.** Esta expresión se conserva como registro de la
+> evolución del modelo y **no** define el comportamiento normativo. Usar
+> $\mathbb{E}[\Delta Conf]$ como término de utilidad lo convirtió en la práctica
+> en un sustituto de la relevancia, reintroduciendo el incentivo con forma de
+> cobertura. La definición vigente y única es
+> [§20.1](#201-utilidad-operativa-y-capacidad-de-acción), que separa
+> recuperación, cobertura probatoria, descubrimiento de contradicción y
+> reducción de riesgo.
+La selección sigue siendo:
 $$
 a^*=\arg\max_{a\in Eligible}Utility(a)
 $$
+con $Utility$ definida en §20.1.
 ---
 # 16. Política práctica de exploración
 Para evitar que el modelo se reduzca a una optimización inoperable, se adopta una política híbrida.
@@ -957,6 +1044,61 @@ Value=
 \nu Staleness
 $$
 La jerarquía $L_0\rightarrow L_5$ constituye una heurística de precedencia para aproximar este óptimo, no el objetivo en sí mismo.
+## 20.1 Utilidad operativa y capacidad de acción
+La selección de acciones no puede prometer un bien que la acción no puede
+entregar. Cada acción candidata declara una **capacidad**:
+| Capacidad | Puede producir |
+|---|---|
+| `retrieval_only` | sólo `mentions` |
+| `structural_relation` | `tests`, `implements`, `configures` |
+| `probatory_static` | `supports` o `refutes` declarados sobre un aspecto requerido |
+| `probatory_dynamic` | `supports` o `refutes` por método de verificación dinámico |
+La capacidad depende del artefacto **y del objetivo**; no se deriva del nivel
+$L_0\rightarrow L_5$ ni de la confianza nominal del método. `probatory_dynamic`
+describe el método que produjo el artefacto y **no** afirma que la ejecución
+estuviera autorizada: la autorización se decide en la frontera de extracción y
+ninguna etiqueta de capacidad concede autoridad.
+La utilidad operativa separa los bienes que antes colapsaban en un escalar:
+$$
+U(a)=
+\frac{
+\alpha\,\Delta Cov^{+}
++\beta\,Retrieval
++\varepsilon\,Contradiction^{disc}
++\gamma\,\Delta Risk^{-}
+}{
+Cost(a)
+}
+$$
+donde $Retrieval$ es la única componente escalada por la relevancia. La
+relevancia es una señal de **recuperación**: indica qué tan probable es que un
+artefacto sea pertinente, no qué tan probable es que **pruebe** un aspecto.
+Usarla como expectativa probatoria reintroduce el incentivo con forma de
+cobertura que esta separación elimina.
+Las expectativas probatorias proceden de un **perfil de calibración
+versionado** que declara su incertidumbre. Mientras no exista calibración
+empírica, el perfil por defecto promete cero y declara incertidumbre no
+acotada; no se asume un prior implícito.
+Los campos $\Delta$ son deltas respecto del estado probatorio vigente, no
+capacidades potenciales: un aspecto ya cubierto no aporta cobertura esperada
+adicional, y una acción que también declara una refutación no promete
+reducción de riesgo, porque por §13.1 una refutación sólo puede mantener o
+aumentar el riesgo.
+Las declaraciones se validan antes de clasificarse. Una declaración
+malformada —aspecto no textual, `strength` no finito o fuera de $[0,1]$,
+`claim` o `scope` no textuales— falla cerrada: produce un diagnóstico
+estructurado y **no** se cuenta como probatoria.
+Una `strength` de exactamente $0$ afirma que la relación **no** se cumple; para
+`supports` y `refutes` es un criterio de admisión que rechaza la entrada.
+Mientras la agregación no se redefina, `strength` opera sólo como criterio de
+admisión y no pondera la cobertura.
+> **Limitación conocida.** La cobertura vigente agrega por volumen de
+> proposiciones y no por claim normalizado, de modo que varias lecturas del
+> mismo claim la elevan; el riesgo residual (§13.1) ya no presenta esa
+> conducta. Esto es una deuda identificada, **no** una propiedad deseada: la
+> conducta objetivo es invariancia ante duplicación del mismo claim y de la
+> misma raíz observada. Mientras persista, la terminación no debe apoyarse en
+> esa inflación, sino en el gate de independencia entre fuentes.
 ---
 # 21. Matriz maestra definitiva
 | Nivel             | Evidencia principal                             | Representación comprimida                 | Verificación                                    | Riesgo de omisión                                     | Retroceso o escalamiento                               |

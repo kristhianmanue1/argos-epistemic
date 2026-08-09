@@ -1,25 +1,25 @@
 # Caso de estudio: an-kla-memory (tercerizado)
 
-> Generado por `examples/regenerate_case_studies.py`. Validación **independiente** sobre un repo público. Fuente `https://github.com/kristhianmanue1/an-kla-memory.git`, 67f6ee4 KRISTHIAN MANUEL (Sat Aug 1 19:54:55 2026 -0600).
+> Generado por `examples/regenerate_case_studies.py`. Evaluación cruzada entre repositorios distintos con dependencia operativa declarada. Fuente `https://github.com/kristhianmanue1/an-kla-memory.git`, revisión completa `f28341ea872f221d7462b6b2bb32b8c1db68ac28`, dirty=`false`.
 
-Objetivo `G=auditoria-memoria`, aspectos `['memory', 'write', 'retrieval', 'canonical', 'test']`.
+Objetivo `G=auditoria-memoria`, aspectos `['memory', 'write', 'retrieval', 'canonical', 'test']`. `independence_class=operational_dependency`, perfil semántico explícito `minilm-v1`.
 
 ## Extracción
 
-- Artefactos: **56** (nivel `{0: 5, 1: 1, 2: 3, 3: 1, 4: 32, 5: 14}`, tipo `{'topology': 1, 'callgraph': 1, 'behavior': 1, 'config': 3, 'doc': 23, 'code': 13, 'test': 14}`).
-- Grafo L3 (producción): 260 nodos / 499 aristas (113 producción). Los tests se excluyen del cálculo de Impact (sesgo corregido). Top impacto: main (0.839), commit_write_plan (0.375), main (0.268), handle (0.259).
-- Comportamiento L4 (Σ_4): 51 levantan, 2 asserts, 8 mutan, 13 validan.
+- Artefactos: **97** (nivel `{0: 8, 1: 1, 2: 6, 3: 1, 4: 59, 5: 22}`, tipo `{'topology': 1, 'callgraph': 1, 'behavior': 1, 'config': 6, 'doc': 49, 'code': 17, 'test': 22}`).
+- Grafo L3 (producción): 364 nodos / 673 aristas (137 producción). Los tests se excluyen del cálculo de Impact (sesgo corregido). Top impacto: main (0.89), commit_write_plan (0.368), apply_upgrade (0.287), build_index (0.235).
+- Comportamiento L4 (Σ_4): 59 levantan, 4 asserts, 15 mutan, 21 validan.
 
 ## Reporte
 
 ```text
-evidence_count  : 49
-proposition_count: 55
-coverage        : 0.8
-residual_risk   : 0.0
-complete        : True
+evidence_count  : 97
+proposition_count: 99
+coverage        : 0.0
+residual_risk   : 1.0
+complete        : False
 levels_covered  : [0, 1, 2, 3, 4, 5]
-aspect_scores   : {'memory': 1.0, 'write': 0.6667, 'retrieval': 1.0, 'canonical': 0.3333, 'test': 1.0}
+aspect_scores   : {'memory': 0.0, 'write': 0.0, 'retrieval': 0.0, 'canonical': 0.0, 'test': 0.0}
 ```
 
 ## Interpretación y riesgo residual
@@ -27,3 +27,5 @@ aspect_scores   : {'memory': 1.0, 'write': 0.6667, 'retrieval': 1.0, 'canonical'
 - Independiente en repositorio, pero an-kla-memory es **dependencia del propio argos** (es la memoria local que usa este repo): no es totalmente ajeno.
 - L4 aquí es particularmente informativo: la lib implementa gobernanza de escritura (write-policy) y canonicalización JSON, por eso muchas funciones levantan `ValueError` (validates) y el top de impacto L3 cae sobre `commit_write_plan`/`main` (path crítico de la escritura gobernada).
 - L3/L4 simbólicos best-effort (Python AST); `S_semantic` surrogate léxico. Sin L5 dinámico sobre terceros por defecto.
+
+_Manifest de entradas fijadas: `sha256:0388de03b5dff81319aecf0257032e0e94e8b856e2685bbd14f3a060c801bf1d` (perfil semántico, revisión del target, evaluador, frescura y presupuesto)._
