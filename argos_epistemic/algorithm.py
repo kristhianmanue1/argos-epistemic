@@ -50,6 +50,9 @@ class Budget:
     compute_remaining: float = float("inf")
     theta_coverage: float = 0.95
     rho_risk: float = 0.05
+    _consumed_charges: dict[str, tuple[int, int, float, float]] = field(
+        default_factory=dict, init=False, repr=False, compare=False
+    )
 
     def has_capacity(self) -> bool:
         return self.tokens_remaining > 0 and self.tool_remaining > 0
@@ -67,6 +70,25 @@ class Budget:
         self.tool_remaining -= cost.tool
         self.latency_remaining -= cost.latency
         self.compute_remaining -= cost.compute
+
+    def record_consumed_charge(self, charge_id: str, cost: Cost) -> None:
+        self._consumed_charges[charge_id] = (
+            cost.tokens,
+            cost.tool,
+            cost.latency,
+            cost.compute,
+        )
+
+    def consume_once(self, charge_id: str, cost: Cost) -> bool:
+        encoded = (cost.tokens, cost.tool, cost.latency, cost.compute)
+        recorded = self._consumed_charges.get(charge_id)
+        if recorded is not None:
+            return recorded == encoded
+        if not self.can_afford(cost):
+            return False
+        self.consume(cost)
+        self._consumed_charges[charge_id] = encoded
+        return True
 
 
 @dataclass
@@ -1935,6 +1957,7 @@ _REJECTION_INVALID_RESULT = "invalid_result"
 _REJECTION_ASPECT_OUTSIDE_GOAL = "aspect_outside_goal"
 _REJECTION_REVISION_MISMATCH = "revision_mismatch"
 _REJECTION_NON_PROBATIVE = "non_probative"
+_REJECTION_DUPLICATE_RESULT = "duplicate_result"
 
 
 def _admit_verification_results(
@@ -1969,6 +1992,7 @@ def _admit_verification_results(
     admitted = 0
     rejected = 0
     reasons: set[str] = set()
+    seen_result_ids: set[str] = set()
     try:
         iterator = iter(verification_results)
     except TypeError:
@@ -1980,6 +2004,11 @@ def _admit_verification_results(
             reasons.add(_REJECTION_INVALID_RESULT)
             continue
         valid += 1
+        if candidate.result_id in seen_result_ids:
+            rejected += 1
+            reasons.add(_REJECTION_DUPLICATE_RESULT)
+            continue
+        seen_result_ids.add(candidate.result_id)
         if candidate.aspect not in allowed_aspects:
             rejected += 1
             reasons.add(_REJECTION_ASPECT_OUTSIDE_GOAL)
@@ -2005,20 +2034,17 @@ def _admit_verification_results(
 
 
 def _admit_dependency_verification(
-    outcome: Any, goal: dict[str, Any]
+    outcome: Any, goal: dict[str, Any], budget: Budget
 ) -> tuple[dict[str, Any] | None, tuple[Any, ...], int, int]:
     """Derive the public report section and cost from a TYPED outcome only
     (P1-6) - never from a caller-supplied dict.
 
-    A caller cannot hand ``analyze_system`` an arbitrary "summary" dict and
-    have it trusted as if it were real: the only accepted shape is
-    ``dependency_verifiers.DependencyVerificationOutcome`` (or ``None``), and
-    the public section AND its cost are both derived from that ONE object,
-    inside this boundary, using the same fields the caller cannot fabricate
-    independently of each other (results/diagnostics/cost all come from one
-    place, so they cannot go incongruent). An object of the wrong type is
-    never trusted: it is ignored, with a diagnostic recorded, rather than
-    raising or being read defensively field-by-field.
+    The dataclass name alone grants nothing: every nested field, counter,
+    result identity, manifest relation and cost identity is checked before the
+    report is rendered. Its results are the same tuple admitted by
+    ``analyze_system``. The content-addressed charge is consumed exactly once
+    by the analysis budget; a precharged outcome is idempotent on that budget,
+    while an outcome from another boundary must still be affordable.
 
     Returns ``(dependency_verification, results, dependency_tokens, dependency_tool)``.
     """
@@ -2027,6 +2053,7 @@ def _admit_dependency_verification(
     from .dependency_verifiers import (
         DependencyVerificationOutcome,
         dependency_verification_report,
+        validate_dependency_verification_outcome,
     )
 
     if not isinstance(outcome, DependencyVerificationOutcome):
@@ -2036,22 +2063,41 @@ def _admit_dependency_verification(
             0,
             0,
         )
+    if validate_dependency_verification_outcome(outcome):
+        return (
+            {"enabled": False, "diagnostics": ["invalid_dependency_verification_outcome"]},
+            (),
+            0,
+            0,
+        )
+    required_aspects = frozenset(aspect["name"] for aspect in derive_goal_aspects(goal))
+    target_revision = str(goal.get("target_revision", "") or "")
+    if any(
+        result.aspect not in required_aspects or result.target_revision != target_revision
+        for result in outcome.results
+    ):
+        return (
+            {"enabled": False, "diagnostics": ["dependency_verification_scope_mismatch"]},
+            (),
+            0,
+            0,
+        )
     tokens = outcome.charged_tokens
     tool = outcome.charged_tool
-    cost_diagnostics: list[str] = []
-    if isinstance(tokens, bool) or not isinstance(tokens, int) or tokens < 0:
-        cost_diagnostics.append("invalid_dependency_verification_cost")
-        tokens = 0
-    if isinstance(tool, bool) or not isinstance(tool, int) or tool < 0:
-        cost_diagnostics.append("invalid_dependency_verification_cost")
-        tool = 0
-    report = dependency_verification_report(
-        outcome, str(goal.get("target_revision", "") or "")
-    )
-    if cost_diagnostics:
+    cost = Cost(tokens=tokens, tool=tool)
+    if not budget.consume_once(outcome.budget_charge_id, cost):
+        report = dependency_verification_report(outcome, target_revision)
         report = dict(report)
-        report["cost"] = {"tokens": tokens, "tool": tool}
-        report["diagnostics"] = sorted({*report.get("diagnostics", []), *cost_diagnostics})
+        report["verification_result_count"] = 0
+        report["results"] = []
+        report["cost"] = {"tokens": 0, "tool": 0}
+        report["diagnostics"] = sorted(
+            {*report.get("diagnostics", []), "dependency_verification_budget_exhausted"}
+        )
+        return report, (), 0, 0
+    report = dependency_verification_report(
+        outcome, target_revision
+    )
     return report, outcome.results, tokens, tool
 
 
@@ -2074,17 +2120,12 @@ def analyze_system(
     manufacture authority by constructing one by hand and passing it in as if
     it had been verified.
 
-    ``dependency_verification_outcome``, when supplied, MUST be a
-    ``dependency_verifiers.DependencyVerificationOutcome`` (never a plain
-    dict) - the public report section and its cost are both derived from that
-    ONE typed object inside this function (see
-    ``_admit_dependency_verification``), so a caller cannot supply a "results"
-    list and a separately-fabricated, incongruent public summary. This
-    parameter is deliberately SEPARATE from ``verification_results``: passing
-    the outcome's own ``.results`` through ``verification_results`` is still
-    required for its findings to become propositions - this parameter alone
-    only contributes the sanitized report section and cost, and cannot by
-    itself fabricate a proposition, coverage or completion.
+    ``dependency_verification_outcome`` is the single dependency boundary for
+    report, cost and results. It is deeply validated, scoped to this goal and
+    charged to this ``Budget`` before its own results join the generic
+    admission path. Callers must not repeat those results in
+    ``verification_results``; if they do, canonical result-id deduplication
+    prevents proposition or coverage multiplication.
 
     Conflicts from the initially-admitted evidence are computed BEFORE the
     loop's first threshold/capacity check (P2-1): a genuine SUPPORTS and a
@@ -2103,11 +2144,20 @@ def analyze_system(
     required_aspects = derive_goal_aspects(goal)
     aspect_names = [a["name"] for a in required_aspects]
     evaluated_revision = str(goal.get("target_revision", "") or "")
-    verification_admission = _admit_verification_results(
-        propositions, verification_results, frozenset(aspect_names), evaluated_revision
+    dependency_verification, dep_results, dependency_tokens, dependency_tool = (
+        _admit_dependency_verification(dependency_verification_outcome, goal, budget)
     )
-    dependency_verification, _dep_results, dependency_tokens, dependency_tool = (
-        _admit_dependency_verification(dependency_verification_outcome, goal)
+    try:
+        external_results = iter(verification_results)
+    except TypeError:
+        external_results = iter(())
+    from itertools import chain
+
+    verification_admission = _admit_verification_results(
+        propositions,
+        chain(external_results, dep_results),
+        frozenset(aspect_names),
+        evaluated_revision,
     )
     conflicts = ConflictStore()
     conflicts.merge(

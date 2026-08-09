@@ -312,24 +312,27 @@ report = analyze_path(root, goal=goal, budget=budget)
 - **Costo cobrado únicamente por trabajo real**: un manifiesto inexistente, un
   symlink rechazado o un target sin ningún manifiesto disponible para
   resolverse **cuestan cero** — no hay lectura, no hay ejecución, no hay cargo.
-  Un manifiesto real se cobra con el tamaño obtenido de `fstat()` sobre el
-  MISMO descriptor ya abierto — antes de leer sus bytes — y la lectura en sí
-  es binaria y acotada a `MAX_MANIFEST_BYTES + 1`. Un target se cobra y
-  ejecuta **todo o nada** contra el conjunto de manifiestos disponibles (0, 1
-  o 2): si el presupuesto no cubre el costo de resolverlo contra TODOS los
-  manifiestos disponibles, el target completo se omite con diagnóstico
+  `fstat()` sobre el descriptor ya abierto permite rechazar temprano un tamaño
+  declarado sobre el límite, pero el cargo usa el total de bytes realmente
+  leído hasta EOF. La lectura es binaria, repite `os.read` ante short reads y
+  se detiene en `MAX_MANIFEST_BYTES + 1`; crecimiento concurrente no se acepta
+  ni se cobra con un tamaño obsoleto. Un target se cobra y ejecuta **todo o
+  nada** contra el conjunto de manifiestos disponibles (0, 1 o 2): si el
+  presupuesto no cubre el costo de resolverlo contra TODOS los manifiestos
+  disponibles, el target completo se omite con diagnóstico
   `dependency_target_budget_exhausted:<nombre>` — nunca una ejecución parcial.
   `executions == len(results)`, y el componente de `charged_tool` atribuible a
   targets es `accepted_targets_ejecutados × manifiestos_disponibles` —
   reconstruible a partir de los campos públicos del `DependencyVerificationOutcome`.
 - **Lectura symlink-safe en una sola apertura fail-closed**: `os.open(...,
-  O_NOFOLLOW)` (cuando el sistema operativo lo soporta) hace que el rechazo de
+  O_NOFOLLOW)` hace que el rechazo de
   symlink sea parte del propio `open()` atómico — no hay una comprobación
   `is_symlink()` seguida de una apertura separada que un reemplazo
   concurrente pudiera colar. `fstat()` se hace sobre el descriptor ya abierto,
   nunca sobre una ruta stat-eada por separado. Symlinks internos, externos o
   rotos se rechazan igual — `<archivo>:symlink_rejected` — nunca se sigue un
-  enlace en silencio.
+  enlace en silencio. Si la plataforma no ofrece `O_NOFOLLOW`, la lectura no
+  se intenta y produce `<archivo>:symlink_protection_unavailable`.
 - **Costo íntegramente visible en el reporte**: `report["cost"]["phases"]
   ["dependency_verification"]` expone `tokens`, `tools`, `manifests_inspected`
   y `executions`; los totales `cost.estimated_tokens`/`observed_tokens`
@@ -342,6 +345,7 @@ report = analyze_path(root, goal=goal, budget=budget)
   siempre (`{"enabled": False}` cuando el goal no opta). Cuando opta:
   `evaluated_target_revision`, `requested_targets`/`accepted_targets`/
   `rejected_targets`, `families_executed`, `manifests_inspected`,
+  `manifest_bytes_read` (nombre y bytes, nunca contenido),
   `verification_result_count`, `results` (lista de `{result_id, outcome,
   aspect, limitations, degradations}` — nunca contenido de manifiesto ni URL),
   `diagnostics`, `cost`. Aparece incluso cuando ningún `VerificationResult`
@@ -352,8 +356,7 @@ report = analyze_path(root, goal=goal, budget=budget)
   coerción) — un valor hostil (`7`, `object()`, una cadena suelta, un `dict`)
   nunca lanza excepción y produce `invalid_goal_aspects` con cero targets
   aceptados y cero costo.
-- **`analyze_system(..., verification_results=..., dependency_verification_outcome=...)`**
-  son dos parámetros deliberadamente SEPARADOS:
+- **`analyze_system(..., verification_results=..., dependency_verification_outcome=...)`**:
   - `verification_results` transporta `VerificationResult` genéricos (de
     cualquier frontera de verificación externa, no sólo dependencias). Cada
     candidato pasa, en este orden estricto, por: (1) `validate_verification_result`
@@ -370,23 +373,24 @@ report = analyze_path(root, goal=goal, budget=budget)
     `verification_candidates_offered`/`verification_results_valid`/
     `verification_propositions_admitted`/`verification_candidates_rejected`/
     `verification_rejection_reasons` (`invalid_result`, `aspect_outside_goal`,
-    `revision_mismatch`, `non_probative`) — nunca se presenta basura
+    `revision_mismatch`, `non_probative`, `duplicate_result`) — nunca se presenta basura
     rechazada (un `int`, un `dict`, una `Proposition` fabricada) como si fuera
     un "resultado de verificación" contado junto a los genuinos.
   - `dependency_verification_outcome` DEBE ser un
     `dependency_verifiers.DependencyVerificationOutcome` tipado — nunca un
-    `dict`. La sección pública del reporte y su costo se derivan SIEMPRE
-    dentro de `analyze_system`, a partir de ese único objeto (nunca de un
-    resumen que el llamador construyó por su cuenta), así que resultados y
-    resumen no pueden llegar incongruentes entre sí. Un objeto del tipo
-    equivocado se ignora con diagnóstico
-    `invalid_dependency_verification_outcome`, sin excepción; un costo
-    negativo o de tipo no entero se recorta a cero con diagnóstico
-    `invalid_dependency_verification_cost`. Pasar sólo
-    `dependency_verification_outcome` (sin también pasar sus `.results` por
-    `verification_results`) hace aparecer la sección del reporte pero **no**
-    produce ninguna `Proposition` — los dos parámetros son independientes por
-    diseño; `analyze_path` siempre pasa ambos.
+    `dict`, pero el tipo exterior no basta. Se validan colecciones internas,
+    cada `VerificationResult`, contadores, familias, manifests, consistencia de
+    costo reconstruida desde `manifest_bytes_read + executions` y una identidad
+    content-addressed del cargo. Cualquier inconsistencia
+    falla cerrada con `invalid_dependency_verification_outcome`, sin renderizar
+    campos hostiles ni admitir evidencia. El outcome es la **única fuente** de
+    sus resultados, su reporte y su costo: `analyze_system` admite directamente
+    sus `.results` por la ruta genérica y consume el cargo exactamente una vez
+    en el mismo `Budget`. Un outcome ya cobrado a ese Budget es idempotente; uno
+    externo debe ser asequible o produce
+    `dependency_verification_budget_exhausted` con cero resultados admitidos.
+    Repetir además sus resultados en `verification_results` no multiplica
+    proposiciones porque se deduplican por `result_id`.
 
 Los conflictos de la evidencia admitida inicialmente (`verification_results`)
 se calculan **antes** de la primera comprobación de umbrales/capacidad del

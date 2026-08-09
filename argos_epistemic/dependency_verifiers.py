@@ -35,7 +35,7 @@ import os
 import re
 import stat as stat_module
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from packaging.markers import Marker
@@ -43,7 +43,15 @@ from packaging.requirements import InvalidRequirement, Requirement
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.utils import InvalidName, canonicalize_name
 
-from .verifiers import DEGRADED, REFUTES, SUPPORTS, UNKNOWN, VerificationInput, VerifierClaim
+from .verifiers import (
+    DEGRADED,
+    REFUTES,
+    SUPPORTS,
+    UNKNOWN,
+    VerificationInput,
+    VerifierClaim,
+    validate_verification_result,
+)
 
 PEP621_PROFILE = "pep621-dependencies"
 PEP508_PROFILE = "pep508-requirements"
@@ -584,7 +592,8 @@ class ManifestRead:
 
     ``problem`` (when set) is one of: ``not_found``, ``exceeds_size_limit``,
     ``encoding_error``, ``unreadable``, ``symlink_rejected``,
-    ``not_a_regular_file``, ``budget_exhausted``.
+    ``symlink_protection_unavailable``, ``not_a_regular_file``,
+    ``budget_exhausted``.
     """
 
     content: str | None
@@ -592,6 +601,7 @@ class ManifestRead:
     size: int = 0
     """Real bytes read (0 when ``content`` is ``None``) - the number cost is
     charged against, never a preceding stat() estimate (P1-4)."""
+    charged: bool = False
 
 
 def _open_manifest_fd(path: Any) -> tuple[int | None, str | None]:
@@ -601,9 +611,9 @@ def _open_manifest_fd(path: Any) -> tuple[int | None, str | None]:
     a concurrent replacement between the check and the open could still slip a
     symlink through a two-step sequence; it cannot slip through one syscall.
     """
-    flags = os.O_RDONLY
-    if hasattr(os, "O_NOFOLLOW"):
-        flags |= os.O_NOFOLLOW
+    if not hasattr(os, "O_NOFOLLOW"):
+        return None, "symlink_protection_unavailable"
+    flags = os.O_RDONLY | os.O_NOFOLLOW
     try:
         return os.open(str(path), flags), None
     except FileNotFoundError:
@@ -620,12 +630,12 @@ def _read_manifest_bounded(path: Any, charge: Any) -> ManifestRead:
     """Read a manifest file's FULL bytes, or refuse outright - via ONE opened
     file descriptor, never a separate check-path then open-path sequence.
 
-    ``charge(size_hint) -> bool`` is called with the REAL size from
-    ``fstat()`` on the already-open descriptor (P1-3/P1-4) - not a
-    pre-open ``stat()`` on the path (which names a different, potentially
-    already-replaced, filesystem entry) - and BEFORE the bytes are read. A
-    file that does not exist, is a symlink, or is not a regular file is never
-    charged: there is no work to charge for.
+    ``fstat()`` on the already-open descriptor performs a conservative early
+    cap check, but the charge uses the bytes actually read through that same
+    descriptor. Reads continue until EOF or ``MAX_MANIFEST_BYTES + 1`` so a
+    short read is never mistaken for EOF and growth after ``fstat()`` cannot
+    be accepted or undercharged. A file that does not exist, is a symlink, is
+    not regular or exceeds the cap is never charged.
 
     Never returns a truncated prefix: a file over the size cap is reported as
     unreadable-for-this-purpose rather than partially inspected, because a
@@ -649,21 +659,29 @@ def _read_manifest_bounded(path: Any, charge: Any) -> ManifestRead:
             return ManifestRead(None, "not_a_regular_file")
         if st.st_size > MAX_MANIFEST_BYTES:
             return ManifestRead(None, "exceeds_size_limit")
-        if not charge(st.st_size):
-            return ManifestRead(None, "budget_exhausted")
-        try:
-            raw = os.read(fd, MAX_MANIFEST_BYTES + 1)
-        except OSError:
-            return ManifestRead(None, "unreadable")
+        chunks: list[bytes] = []
+        total = 0
+        while total <= MAX_MANIFEST_BYTES:
+            try:
+                chunk = os.read(fd, MAX_MANIFEST_BYTES + 1 - total)
+            except OSError:
+                return ManifestRead(None, "unreadable")
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
     finally:
         os.close(fd)
+    raw = b"".join(chunks)
     if len(raw) > MAX_MANIFEST_BYTES:
         return ManifestRead(None, "exceeds_size_limit", size=len(raw))
+    if not charge(len(raw)):
+        return ManifestRead(None, "budget_exhausted", size=len(raw))
     try:
         content = raw.decode("utf-8")
     except UnicodeDecodeError:
-        return ManifestRead(None, "encoding_error", size=len(raw))
-    return ManifestRead(content, None, size=len(raw))
+        return ManifestRead(None, "encoding_error", size=len(raw), charged=True)
+    return ManifestRead(content, None, size=len(raw), charged=True)
 
 
 def _coerce_target(spec: object) -> tuple[DependencyTarget | None, str | None]:
@@ -730,6 +748,7 @@ class DependencyVerificationOutcome:
     results: tuple[Any, ...]
     diagnostics: tuple[str, ...]
     manifests_inspected: tuple[str, ...]
+    manifest_bytes_read: tuple[tuple[str, int], ...]
     requested_targets: int
     accepted_targets: int
     rejected_targets: int
@@ -737,6 +756,118 @@ class DependencyVerificationOutcome:
     families_executed: tuple[str, ...]
     charged_tokens: int
     charged_tool: int
+    budget_charge_id: str = ""
+
+
+def _dependency_outcome_charge_id(outcome: DependencyVerificationOutcome) -> str:
+    from .canonical import content_id
+
+    return content_id(
+        "dependency-verification-charge",
+        {
+            "results": [result.result_id for result in outcome.results],
+            "diagnostics": list(outcome.diagnostics),
+            "manifests_inspected": list(outcome.manifests_inspected),
+            "manifest_bytes_read": [list(item) for item in outcome.manifest_bytes_read],
+            "requested_targets": outcome.requested_targets,
+            "accepted_targets": outcome.accepted_targets,
+            "rejected_targets": outcome.rejected_targets,
+            "executions": outcome.executions,
+            "families_executed": list(outcome.families_executed),
+            "charged_tokens": outcome.charged_tokens,
+            "charged_tool": outcome.charged_tool,
+        },
+    )
+
+
+def _finalize_dependency_outcome(
+    outcome: DependencyVerificationOutcome, budget: Any
+) -> DependencyVerificationOutcome:
+    charge_id = _dependency_outcome_charge_id(outcome)
+    finalized = replace(outcome, budget_charge_id=charge_id)
+    recorder = getattr(budget, "record_consumed_charge", None)
+    if callable(recorder):
+        from .algorithm import Cost
+
+        recorder(charge_id, Cost(tokens=outcome.charged_tokens, tool=outcome.charged_tool))
+    return finalized
+
+
+def validate_dependency_verification_outcome(outcome: Any) -> tuple[str, ...]:
+    if not isinstance(outcome, DependencyVerificationOutcome):
+        return ("invalid_dependency_verification_outcome",)
+    problems: list[str] = []
+    if not isinstance(outcome.results, tuple) or any(
+        validate_verification_result(result) for result in outcome.results
+    ):
+        problems.append("invalid_results")
+    for name, textual_value in (
+        ("diagnostics", outcome.diagnostics),
+        ("manifests_inspected", outcome.manifests_inspected),
+        ("families_executed", outcome.families_executed),
+    ):
+        if not isinstance(textual_value, tuple) or not all(
+            isinstance(item, str) for item in textual_value
+        ):
+            problems.append(f"invalid_{name}")
+    if not isinstance(outcome.manifest_bytes_read, tuple) or not all(
+        isinstance(item, tuple)
+        and len(item) == 2
+        and isinstance(item[0], str)
+        and not isinstance(item[1], bool)
+        and isinstance(item[1], int)
+        and 0 <= item[1] <= MAX_MANIFEST_BYTES
+        for item in outcome.manifest_bytes_read
+    ):
+        problems.append("invalid_manifest_bytes_read")
+    for name, numeric_value in (
+        ("requested_targets", outcome.requested_targets),
+        ("accepted_targets", outcome.accepted_targets),
+        ("rejected_targets", outcome.rejected_targets),
+        ("executions", outcome.executions),
+        ("charged_tokens", outcome.charged_tokens),
+        ("charged_tool", outcome.charged_tool),
+    ):
+        if (
+            isinstance(numeric_value, bool)
+            or not isinstance(numeric_value, int)
+            or numeric_value < 0
+        ):
+            problems.append(f"invalid_{name}")
+    if not isinstance(outcome.budget_charge_id, str) or not outcome.budget_charge_id:
+        problems.append("invalid_budget_charge_id")
+    if problems:
+        return tuple(sorted(set(problems)))
+    if outcome.accepted_targets + outcome.rejected_targets != outcome.requested_targets:
+        problems.append("inconsistent_target_counts")
+    if outcome.executions != len(outcome.results):
+        problems.append("inconsistent_execution_count")
+    expected_families = tuple(sorted({result.verifier_family for result in outcome.results}))
+    if outcome.families_executed != expected_families:
+        problems.append("inconsistent_families_executed")
+    allowed_manifests = (PYPROJECT_FILENAME, REQUIREMENTS_FILENAME)
+    expected_manifests = tuple(name for name in allowed_manifests if name in outcome.manifests_inspected)
+    if outcome.manifests_inspected != expected_manifests:
+        problems.append("invalid_manifests_inspected")
+    charged_manifest_names = tuple(item[0] for item in outcome.manifest_bytes_read)
+    expected_charged_names = tuple(name for name in allowed_manifests if name in charged_manifest_names)
+    if charged_manifest_names != expected_charged_names:
+        problems.append("invalid_manifest_bytes_read")
+    if any(name not in charged_manifest_names for name in outcome.manifests_inspected):
+        problems.append("manifest_charge_mismatch")
+    if any(result.artifact_id not in outcome.manifests_inspected for result in outcome.results):
+        problems.append("result_manifest_mismatch")
+    expected_tool = len(outcome.manifest_bytes_read) + outcome.executions
+    if outcome.charged_tool != expected_tool:
+        problems.append("inconsistent_tool_cost")
+    expected_tokens = sum(
+        max(10, size // 4) for _, size in outcome.manifest_bytes_read
+    ) + (_PER_TARGET_COST_TOKENS * outcome.executions)
+    if outcome.charged_tokens != expected_tokens:
+        problems.append("inconsistent_token_cost")
+    if not problems and outcome.budget_charge_id != _dependency_outcome_charge_id(outcome):
+        problems.append("budget_charge_id_mismatch")
+    return tuple(sorted(set(problems)))
 
 
 def verify_dependency_targets(
@@ -765,15 +896,13 @@ def verify_dependency_targets(
     for a goal that never asked about it, and it can never contaminate that
     goal's coverage/risk/completion.
 
-    Every manifest read and every accepted target is charged against ``budget``
-    explicitly (if supplied) BEFORE the corresponding work runs; a manifest
-    whose read the budget cannot afford is treated as absent for this call,
-    exactly like an unresolved include - never as a confident absence. Cost is
-    charged ONLY for real work: a nonexistent file, a rejected symlink or a
-    target with zero parsed manifests to resolve against costs nothing
-    (P1-3) - there is nothing there to charge for. Targets are deduplicated by
-    canonical identity and capped at ``MAX_DEPENDENCY_TARGETS`` so an unbounded
-    or duplicated target list cannot buy unbounded work for free.
+    Manifest cost is charged from the complete bounded byte count actually read;
+    target-resolution cost is admitted against ``budget`` before the target
+    runs. A manifest whose charge the budget cannot afford is unavailable for
+    this call, never a confident absence. A nonexistent file, rejected symlink,
+    over-cap file or target with zero parsed manifests costs nothing. Targets
+    are deduplicated by canonical identity and capped at
+    ``MAX_DEPENDENCY_TARGETS``.
 
     ``targets`` is guarded explicitly: a non-iterable value (``targets=7``) or
     a bare string would otherwise raise from iteration or silently iterate
@@ -792,7 +921,10 @@ def verify_dependency_targets(
     from .verifiers import VerifierRegistration, run_verifier, verification_input
 
     def _empty(diag: tuple[str, ...] = ()) -> DependencyVerificationOutcome:
-        return DependencyVerificationOutcome((), diag, (), 0, 0, 0, 0, (), 0, 0)
+        return _finalize_dependency_outcome(
+            DependencyVerificationOutcome((), diag, (), (), 0, 0, 0, 0, (), 0, 0),
+            budget,
+        )
 
     if not isinstance(target_revision, str) or not target_revision.strip():
         return _empty(("missing_target_revision",))
@@ -837,8 +969,11 @@ def verify_dependency_targets(
     accepted_targets = len(in_scope)
     rejected_targets = requested_targets - accepted_targets
     if not in_scope:
-        return DependencyVerificationOutcome(
-            (), tuple(diagnostics), (), requested_targets, 0, rejected_targets, 0, (), 0, 0
+        return _finalize_dependency_outcome(
+            DependencyVerificationOutcome(
+                (), tuple(diagnostics), (), (), requested_targets, 0, rejected_targets, 0, (), 0, 0
+            ),
+            budget,
         )
 
     root_path = Path(root)
@@ -864,11 +999,8 @@ def verify_dependency_targets(
     def _load_manifest(filename: str) -> str | None:
         """Read one manifest via the bounded, symlink-rejecting reader.
 
-        ``charge`` receives the REAL ``fstat()``-ed size of the opened
-        descriptor - never a separate pre-open ``stat()`` on the path - and is
-        called AFTER confirming the entry is a readable regular file but BEFORE
-        its bytes are read, so nothing is ever charged for a file that turns
-        out not to exist, not to be a plain file, or to be a rejected symlink.
+        ``charge`` receives the complete bounded byte count read from the opened
+        descriptor, never a stale path or ``fstat()`` estimate.
         """
         path = root_path / filename
         read = _read_manifest_bounded(
@@ -876,11 +1008,14 @@ def verify_dependency_targets(
         )
         if read.problem is not None and read.problem != "not_found":
             diagnostics.append(f"{filename}:{read.problem}")
+        if read.charged:
+            manifest_bytes_read.append((filename, read.size))
         if read.content is not None:
             manifests_inspected.append(filename)
         return read.content
 
     manifests_inspected: list[str] = []
+    manifest_bytes_read: list[tuple[str, int]] = []
     pyproject_content = _load_manifest(PYPROJECT_FILENAME)
     requirements_content = _load_manifest(REQUIREMENTS_FILENAME)
 
@@ -940,17 +1075,21 @@ def verify_dependency_targets(
             if family == PEP621_PROFILE:
                 pep621_result = result
 
-    return DependencyVerificationOutcome(
-        tuple(results),
-        tuple(diagnostics),
-        tuple(manifests_inspected),
-        requested_targets,
-        accepted_targets,
-        rejected_targets,
-        executions,
-        tuple(sorted(families_executed)),
-        charged_tokens,
-        charged_tool,
+    return _finalize_dependency_outcome(
+        DependencyVerificationOutcome(
+            tuple(results),
+            tuple(diagnostics),
+            tuple(manifests_inspected),
+            tuple(manifest_bytes_read),
+            requested_targets,
+            accepted_targets,
+            rejected_targets,
+            executions,
+            tuple(sorted(families_executed)),
+            charged_tokens,
+            charged_tool,
+        ),
+        budget,
     )
 
 
@@ -965,6 +1104,11 @@ def dependency_verification_report(
     invalid, out-of-scope, oversized, unreadable or budget-exhausted remains
     visible rather than silently vanishing.
     """
+    if validate_dependency_verification_outcome(outcome):
+        return {
+            "enabled": False,
+            "diagnostics": ["invalid_dependency_verification_outcome"],
+        }
     return {
         "enabled": True,
         "evaluated_target_revision": target_revision,
@@ -973,6 +1117,10 @@ def dependency_verification_report(
         "rejected_targets": outcome.rejected_targets,
         "families_executed": list(outcome.families_executed),
         "manifests_inspected": list(outcome.manifests_inspected),
+        "manifest_bytes_read": [
+            {"manifest": name, "bytes": size}
+            for name, size in outcome.manifest_bytes_read
+        ],
         "verification_result_count": len(outcome.results),
         "results": [
             {

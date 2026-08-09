@@ -581,8 +581,8 @@ def _resolve_dependency_verification(
     resolved_goal: dict[str, Any], root_path: Any, budget: Any
 ) -> tuple[tuple[Any, ...], Any]:
     """Run the dependency verifiers when the goal opts in, returning the
-    ``(verification_results, dependency_verification_outcome)`` pair to hand to
-    ``analyze_system``.
+    pair expected by ``analyze_system``. Dependency results travel only inside
+    the typed outcome; the generic result tuple is empty.
 
     Opt-in is the PRESENCE of the ``"dependency_targets"`` key in the goal, not
     its truthiness (P1-6): ``dependency_targets=None/0/""`` still opts in and is
@@ -593,13 +593,10 @@ def _resolve_dependency_verification(
     rejecting), never from ``system["artifacts"]``, which discovery may have
     truncated.
 
-    The results (``VerificationResult``) are handed to ``analyze_system`` through
-    the GENERIC ``verification_results`` parameter, NEVER a ``Proposition`` built
-    here: the automatic boundary transports results only, and
-    ``proposition_from_verification`` is the sole conversion. The typed outcome
-    is ALSO passed, separately, so ``analyze_system`` can derive the public
-    report section and its cost from that one object itself (P1-6) - this
-    function never builds that summary.
+    The typed outcome is the single carrier for dependency results, report data
+    and content-addressed cost. ``analyze_system`` validates it, consumes the
+    charge exactly once and sends its results through the generic admission
+    function, whose sole conversion remains ``proposition_from_verification``.
     """
     if "dependency_targets" not in resolved_goal:
         return (), None
@@ -614,4 +611,4 @@ def _resolve_dependency_verification(
         budget,
         goal_aspect_names,
     )
-    return outcome.results, outcome
+    return (), outcome

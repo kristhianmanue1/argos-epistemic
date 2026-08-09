@@ -99,6 +99,17 @@ esos campos, que son precisamente las entradas del cálculo de independencia.
 Una excepción, una entrada no soportada, un aspecto fuera del objetivo o un
 claim vacío producen `degraded` o `unknown` con confianza cero; nunca `supports`.
 
+La frontera automática de dependencias transporta reporte, resultados y costo
+en un único `DependencyVerificationOutcome`. `analyze_system` no confía sólo en
+el nombre de la dataclass: valida recursivamente resultados, colecciones,
+contadores, manifests, bytes leídos, costo reconstruible y la identidad
+content-addressed del cargo; después cobra ese cargo una sola vez al `Budget` y
+admite exactamente los resultados del mismo outcome. Duplicarlos además por la
+entrada genérica colapsa por `result_id`.
+Los manifests se abren con `O_NOFOLLOW`, se leen hasta EOF mediante un bucle
+acotado y se cobran por bytes reales; sin protección atómica de symlinks la
+plataforma falla cerrada.
+
 La independencia **no** es un hash de `perfil + método + raíz`: ese cálculo
 haría que dos verificadores distintos sobre el mismo archivo parecieran
 independientes y no representaría conjuntos de raíces parcialmente solapados

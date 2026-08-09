@@ -2165,12 +2165,13 @@ def test_arbitrary_type_dependency_verification_outcome_never_raises(garbage):
     assert report["dependency_verification"]["enabled"] is False
 
 
-def test_dependency_verification_outcome_with_negative_cost_is_clamped():
+def test_dependency_verification_outcome_with_negative_cost_is_rejected():
     from argos_epistemic.algorithm import Budget, analyze_system
     from argos_epistemic.dependency_verifiers import DependencyVerificationOutcome
 
     hostile_outcome = DependencyVerificationOutcome(
         results=(), diagnostics=(), manifests_inspected=(),
+        manifest_bytes_read=(),
         requested_targets=0, accepted_targets=0, rejected_targets=0, executions=0,
         families_executed=(), charged_tokens=-999, charged_tool=-5,
     )
@@ -2182,13 +2183,12 @@ def test_dependency_verification_outcome_with_negative_cost_is_clamped():
     )
     assert report["cost"]["estimated_tokens"] == 0
     assert report["cost"]["observed_tokens"] == 0
-    assert "invalid_dependency_verification_cost" in report["dependency_verification"]["diagnostics"]
+    assert report["dependency_verification"]["enabled"] is False
+    assert "invalid_dependency_verification_outcome" in report["dependency_verification"]["diagnostics"]
 
 
-def test_verification_results_and_dependency_verification_outcome_are_independent():
-    """Passing dependency_verification_outcome alone (without also passing its
-    .results through verification_results) must NOT fabricate a proposition -
-    the two parameters are separate by design (P1-6)."""
+def test_dependency_verification_outcome_carries_its_own_admitted_results():
+    """The typed outcome is the single boundary for report, cost and results."""
     import tempfile
     from pathlib import Path
 
@@ -2207,9 +2207,9 @@ def test_verification_results_and_dependency_verification_outcome_are_independen
     goal = {"name": "g", "aspects": ["flask"], "target_revision": "rev-1"}
     report = analyze_system(
         {"name": "x", "artifacts": []}, goal, Budget(tokens_remaining=1000, tool_remaining=10),
-        dependency_verification_outcome=outcome,  # NOT also passed via verification_results
+        dependency_verification_outcome=outcome,
     )
-    assert report["proposition_count"] == 0  # report section present, but no propositions
+    assert report["proposition_count"] == len(outcome.results)
     assert report["dependency_verification"]["verification_result_count"] == len(outcome.results)
 
 
@@ -2306,3 +2306,305 @@ def test_verification_results_generator_is_consumed_exactly_once():
     budget = Budget(tokens_remaining=1000, tool_remaining=10)
     report = analyze_system(system, goal, budget, verification_results=gen())
     assert report["proposition_count"] == 2
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("results", (object(),)),
+        ("diagnostics", object()),
+        ("manifests_inspected", object()),
+        ("manifest_bytes_read", object()),
+        ("families_executed", object()),
+        ("requested_targets", True),
+        ("accepted_targets", None),
+        ("rejected_targets", []),
+        ("executions", "2"),
+        ("charged_tokens", 1.5),
+        ("charged_tool", False),
+        ("budget_charge_id", object()),
+    ],
+)
+def test_typed_dependency_outcome_with_hostile_fields_fails_closed(field, value, tmp_path):
+    from dataclasses import replace
+
+    from argos_epistemic.algorithm import Budget, analyze_system
+    from argos_epistemic.dependency_verifiers import verify_dependency_targets
+
+    _write_fixture(tmp_path, ["requests>=2.0"], ["requests>=2.0"])
+    outcome = verify_dependency_targets(
+        tmp_path,
+        [{"name": "requests", "specifier": ">=2.0", "scope": "core"}],
+        "rev-1",
+        None,
+        goal_aspects=("requests",),
+    )
+    hostile = replace(outcome, **{field: value})
+    report = analyze_system(
+        {"name": "x", "artifacts": []},
+        {"name": "g", "aspects": ["requests"], "target_revision": "rev-1"},
+        Budget(tokens_remaining=1000, tool_remaining=10),
+        dependency_verification_outcome=hostile,
+    )
+    assert report["proposition_count"] == 0
+    assert report["dependency_verification"]["enabled"] is False
+    assert "invalid_dependency_verification_outcome" in report["dependency_verification"]["diagnostics"]
+
+
+def test_dependency_outcome_is_the_single_source_for_report_and_admission(tmp_path):
+    from argos_epistemic.algorithm import Budget, analyze_system
+    from argos_epistemic.dependency_verifiers import verify_dependency_targets
+
+    _write_fixture(tmp_path, ["requests>=2.0"], ["requests>=2.0"])
+    outcome = verify_dependency_targets(
+        tmp_path,
+        [{"name": "requests", "specifier": ">=2.0", "scope": "core"}],
+        "rev-1",
+        None,
+        goal_aspects=("requests",),
+    )
+    report = analyze_system(
+        {"name": "x", "artifacts": []},
+        {
+            "name": "g",
+            "aspects": ["requests"],
+            "target_revision": "rev-1",
+            "min_sources_per_aspect": 2,
+        },
+        Budget(tokens_remaining=1000, tool_remaining=10),
+        dependency_verification_outcome=outcome,
+    )
+    assert report["proposition_count"] == len(outcome.results) == 2
+    assert report["verification_admission"]["verification_candidates_offered"] == 2
+    assert report["dependency_verification"]["verification_result_count"] == 2
+    assert report["complete"] is True
+
+
+def test_external_dependency_outcome_consumes_the_analysis_budget_once(tmp_path):
+    from argos_epistemic.algorithm import Budget, analyze_system
+    from argos_epistemic.dependency_verifiers import verify_dependency_targets
+
+    _write_fixture(tmp_path, ["requests>=2.0"], ["requests>=2.0"])
+    outcome = verify_dependency_targets(
+        tmp_path,
+        [{"name": "requests", "specifier": ">=2.0", "scope": "core"}],
+        "rev-1",
+        None,
+        goal_aspects=("requests",),
+    )
+    budget = Budget(tokens_remaining=1000, tool_remaining=10)
+    report = analyze_system(
+        {"name": "x", "artifacts": []},
+        {"name": "g", "aspects": ["requests"], "target_revision": "rev-1"},
+        budget,
+        dependency_verification_outcome=outcome,
+    )
+    assert budget.tokens_remaining == 1000 - outcome.charged_tokens
+    assert budget.tool_remaining == 10 - outcome.charged_tool
+    assert report["cost"]["phases"]["dependency_verification"]["tokens"] == outcome.charged_tokens
+
+
+def test_dependency_outcome_precharged_to_same_budget_is_not_charged_twice(tmp_path):
+    from argos_epistemic.algorithm import Budget, analyze_system
+    from argos_epistemic.dependency_verifiers import verify_dependency_targets
+
+    _write_fixture(tmp_path, ["requests>=2.0"], ["requests>=2.0"])
+    budget = Budget(tokens_remaining=1000, tool_remaining=10)
+    outcome = verify_dependency_targets(
+        tmp_path,
+        [{"name": "requests", "specifier": ">=2.0", "scope": "core"}],
+        "rev-1",
+        budget,
+        goal_aspects=("requests",),
+    )
+    after_verification = (budget.tokens_remaining, budget.tool_remaining)
+    analyze_system(
+        {"name": "x", "artifacts": []},
+        {"name": "g", "aspects": ["requests"], "target_revision": "rev-1"},
+        budget,
+        dependency_verification_outcome=outcome,
+    )
+    assert (budget.tokens_remaining, budget.tool_remaining) == after_verification
+
+
+def test_bounded_manifest_reader_retries_short_reads_until_eof(tmp_path, monkeypatch):
+    import os
+
+    from argos_epistemic.dependency_verifiers import _read_manifest_bounded
+
+    path = tmp_path / "pyproject.toml"
+    content = b'[project]\nname="x"\ndependencies=["requests>=2.0"]\n'
+    path.write_bytes(content)
+    chunks = iter((content[:8], content[8:23], content[23:], b""))
+    monkeypatch.setattr(os, "read", lambda _fd, _size: next(chunks))
+    charged = []
+    result = _read_manifest_bounded(path, lambda size: charged.append(size) or True)
+    assert result.problem is None
+    assert result.content == content.decode("utf-8")
+    assert result.size == len(content)
+    assert charged == [len(content)]
+
+
+def test_bounded_manifest_reader_charges_actual_bytes_after_stale_fstat(tmp_path, monkeypatch):
+    import os
+    from types import SimpleNamespace
+
+    from argos_epistemic.dependency_verifiers import _read_manifest_bounded
+
+    path = tmp_path / "requirements.txt"
+    content = b"requests>=2.0\n" * 40
+    path.write_bytes(content)
+    real_fstat = os.fstat
+
+    def stale_fstat(fd):
+        current = real_fstat(fd)
+        return SimpleNamespace(st_mode=current.st_mode, st_size=1)
+
+    monkeypatch.setattr(os, "fstat", stale_fstat)
+    charged = []
+    result = _read_manifest_bounded(path, lambda size: charged.append(size) or True)
+    assert result.problem is None
+    assert result.size == len(content)
+    assert charged == [len(content)]
+
+
+def test_manifest_reader_fails_closed_when_atomic_symlink_guard_is_unavailable(tmp_path, monkeypatch):
+    import os
+
+    from argos_epistemic.dependency_verifiers import _read_manifest_bounded
+
+    path = tmp_path / "pyproject.toml"
+    path.write_text('[project]\nname="x"\n', encoding="utf-8")
+    monkeypatch.delattr(os, "O_NOFOLLOW", raising=False)
+
+    def forbidden_open(*_args, **_kwargs):
+        raise AssertionError("os.open must not run without an atomic symlink guard")
+
+    monkeypatch.setattr(os, "open", forbidden_open)
+    result = _read_manifest_bounded(path, lambda _size: True)
+    assert result.content is None
+    assert result.problem == "symlink_protection_unavailable"
+
+
+def test_manifest_growth_past_cap_after_fstat_is_rejected_without_charge(tmp_path, monkeypatch):
+    import os
+    from types import SimpleNamespace
+
+    from argos_epistemic.dependency_verifiers import MAX_MANIFEST_BYTES, _read_manifest_bounded
+
+    path = tmp_path / "requirements.txt"
+    path.write_bytes(b"x" * (MAX_MANIFEST_BYTES + 50))
+    real_fstat = os.fstat
+
+    def stale_fstat(fd):
+        current = real_fstat(fd)
+        return SimpleNamespace(st_mode=current.st_mode, st_size=1)
+
+    monkeypatch.setattr(os, "fstat", stale_fstat)
+    charged = []
+    result = _read_manifest_bounded(path, lambda size: charged.append(size) or True)
+    assert result.content is None
+    assert result.problem == "exceeds_size_limit"
+    assert result.size == MAX_MANIFEST_BYTES + 1
+    assert charged == []
+
+
+def test_dependency_outcome_is_not_admitted_when_analysis_budget_cannot_pay(tmp_path):
+    from argos_epistemic.algorithm import Budget, analyze_system
+    from argos_epistemic.dependency_verifiers import verify_dependency_targets
+
+    _write_fixture(tmp_path, ["requests>=2.0"], ["requests>=2.0"])
+    outcome = verify_dependency_targets(
+        tmp_path,
+        [{"name": "requests", "specifier": ">=2.0", "scope": "core"}],
+        "rev-1",
+        None,
+        goal_aspects=("requests",),
+    )
+    budget = Budget(tokens_remaining=1, tool_remaining=1)
+    report = analyze_system(
+        {"name": "x", "artifacts": []},
+        {"name": "g", "aspects": ["requests"], "target_revision": "rev-1"},
+        budget,
+        dependency_verification_outcome=outcome,
+    )
+    assert report["proposition_count"] == 0
+    assert "dependency_verification_budget_exhausted" in report["dependency_verification"]["diagnostics"]
+    assert report["dependency_verification"]["verification_result_count"] == 0
+    assert (budget.tokens_remaining, budget.tool_remaining) == (1, 1)
+
+
+def test_dependency_outcome_charge_identity_is_integrity_checked(tmp_path):
+    from dataclasses import replace
+
+    from argos_epistemic.algorithm import Budget, analyze_system
+    from argos_epistemic.dependency_verifiers import verify_dependency_targets
+
+    _write_fixture(tmp_path, ["requests>=2.0"], ["requests>=2.0"])
+    outcome = verify_dependency_targets(
+        tmp_path,
+        [{"name": "requests", "specifier": ">=2.0", "scope": "core"}],
+        "rev-1",
+        None,
+        goal_aspects=("requests",),
+    )
+    tampered = replace(outcome, budget_charge_id="dependency-verification-charge:sha256:" + "0" * 64)
+    report = analyze_system(
+        {"name": "x", "artifacts": []},
+        {"name": "g", "aspects": ["requests"], "target_revision": "rev-1"},
+        Budget(tokens_remaining=1000, tool_remaining=10),
+        dependency_verification_outcome=tampered,
+    )
+    assert report["proposition_count"] == 0
+    assert report["dependency_verification"]["enabled"] is False
+
+
+def test_dependency_outcome_cannot_rebind_a_smaller_positive_token_cost(tmp_path):
+    from dataclasses import replace
+
+    from argos_epistemic.algorithm import Budget, analyze_system
+    from argos_epistemic.dependency_verifiers import (
+        _dependency_outcome_charge_id,
+        verify_dependency_targets,
+    )
+
+    _write_fixture(tmp_path, ["requests>=2.0"], ["requests>=2.0"])
+    outcome = verify_dependency_targets(
+        tmp_path,
+        [{"name": "requests", "specifier": ">=2.0", "scope": "core"}],
+        "rev-1",
+        None,
+        goal_aspects=("requests",),
+    )
+    lowered = replace(outcome, charged_tokens=1, budget_charge_id="")
+    lowered = replace(lowered, budget_charge_id=_dependency_outcome_charge_id(lowered))
+    report = analyze_system(
+        {"name": "x", "artifacts": []},
+        {"name": "g", "aspects": ["requests"], "target_revision": "rev-1"},
+        Budget(tokens_remaining=1000, tool_remaining=10),
+        dependency_verification_outcome=lowered,
+    )
+    assert report["proposition_count"] == 0
+    assert report["dependency_verification"]["enabled"] is False
+
+
+def test_duplicate_results_across_generic_and_dependency_boundaries_are_admitted_once(tmp_path):
+    from argos_epistemic.algorithm import Budget, analyze_system
+    from argos_epistemic.dependency_verifiers import verify_dependency_targets
+
+    _write_fixture(tmp_path, ["requests>=2.0"], ["requests>=2.0"])
+    outcome = verify_dependency_targets(
+        tmp_path,
+        [{"name": "requests", "specifier": ">=2.0", "scope": "core"}],
+        "rev-1",
+        None,
+        goal_aspects=("requests",),
+    )
+    report = analyze_system(
+        {"name": "x", "artifacts": []},
+        {"name": "g", "aspects": ["requests"], "target_revision": "rev-1"},
+        Budget(tokens_remaining=1000, tool_remaining=10),
+        verification_results=outcome.results,
+        dependency_verification_outcome=outcome,
+    )
+    assert report["proposition_count"] == len(outcome.results)
