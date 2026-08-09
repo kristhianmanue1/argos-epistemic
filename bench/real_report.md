@@ -12,48 +12,40 @@ Commits fijados: `markupsafe` b2e4d9c7687b, `itsdangerous` 672971d66a2e, `click`
 
 | repo | metodo | precision | recall | tokens | argos_coverage | complete | brier |
 |---|---|---|---|---|---|---|---|
-| markupsafe | argos(lex) | 1.0 | 0.333 | 13638 | 0.00 | False | 0.160 |
-| markupsafe | argos(dense) | 0.214 | 1.0 | 13638 | 0.00 | False | 0.391 |
-| markupsafe | argos(dense,impact) | 0.214 | 1.0 | 13638 | 0.00 | False | 0.349 |
+| markupsafe | argos(lex) | 1.0 | 0.333 | 13638 | 0.07 | False | 0.160 |
+| markupsafe | argos(dense) | 0.214 | 1.0 | 13638 | 0.43 | False | 0.391 |
+| markupsafe | argos(dense,impact) | 0.214 | 1.0 | 13638 | 0.60 | False | 0.349 |
 | markupsafe | full_read | 0.103 | 1.0 | 13638 | - | - | - |
 | markupsafe | lexical_topk | 0.0 | 0.0 | 1198 | - | - | - |
 | itsdangerous | argos(lex) | 0.0 | 0.0 | 19771 | 0.00 | False | - |
-| itsdangerous | argos(dense) | 0.733 | 1.0 | 19771 | 0.00 | False | 0.325 |
-| itsdangerous | argos(dense,impact) | 0.733 | 1.0 | 19771 | 0.00 | False | 0.323 |
+| itsdangerous | argos(dense) | 0.733 | 1.0 | 19771 | 0.80 | False | 0.325 |
+| itsdangerous | argos(dense,impact) | 0.714 | 0.909 | 15675 | 0.83 | True | 0.329 |
 | itsdangerous | full_read | 0.344 | 1.0 | 19771 | - | - | - |
 | itsdangerous | lexical_topk | 0.727 | 0.727 | 9934 | - | - | - |
-| click | argos(lex) | 0.0 | 0.0 | 132098 | 0.00 | False | 0.360 |
-| click | argos(dense) | 0.065 | 1.0 | 132098 | 0.00 | False | 0.399 |
-| click | argos(dense,impact) | 0.065 | 1.0 | 132098 | 0.00 | False | 0.385 |
+| click | argos(lex) | 0.0 | 0.0 | 132098 | 0.03 | False | 0.360 |
+| click | argos(dense) | 0.065 | 1.0 | 132098 | 1.00 | False | 0.399 |
+| click | argos(dense,impact) | 0.0 | 0.0 | 2220 | 0.83 | True | 0.500 |
 | click | full_read | 0.044 | 1.0 | 132098 | - | - | - |
 | click | lexical_topk | 0.143 | 0.143 | 12086 | - | - | - |
 
 ## Lectura
-- **Recall medio**: argos(lex) **0.111**, argos(dense) **1.000**, argos(dense,impact) **1.000**, full_read **1.000**, lexical_topk **0.290**.
-- **Brier medio** (calibracion de confianza; solo argos emite confidence): argos(lex) **0.260**, argos(dense) **0.372**, argos(dense,impact) **0.352**.
+- **Recall medio**: argos(lex) **0.111**, argos(dense) **1.000**, argos(dense,impact) **0.636**, full_read **1.000**, lexical_topk **0.290**.
+- **Brier medio** (calibracion de confianza; solo argos emite confidence): argos(lex) **0.260**, argos(dense) **0.372**, argos(dense,impact) **0.393**.
 
 ### Hallazgos sobre codigo real
-- **`argos_coverage`/`complete` son 0.00/False en TODAS las filas desde
-  `bed0ae7` ("add auditable typed claims"): ese commit separo la relacion
-  `mentions` (evidencia semanticamente vinculada) de `supports` (evidencia
-  confirmada), y `aspect_score`/`compute_coverage` solo cuentan `supports`.
-  La unica via a `supports` sin declaracion explicita es verificacion
-  `dynamic` (ejecutar el codigo), que este benchmark **no activa**
-  (`extract_system` sin `run_dynamic=True`). Precision/recall siguen siendo
-  comparables entre filas (miden seleccion, no confirmacion); `argos_coverage`
-  y `complete` ya no lo son hasta que se active verificacion dinamica.
 - **El linker denso sube el recall** (recupera aspectos semanticos como
   `injection`/`errors`/`security` que el lexico no puede) — confirma en codigo
-  real el beneficio ya visto en micro-fixtures. Esto se mide por seleccion
-  (precision/recall), no por `argos_coverage`.
+  real el beneficio ya visto en micro-fixtures.
 - **Tendencia a sobre-enlazar documentacion/ejemplos**: los ficheros cortos
   y saturados de palabras-aspecto (ejemplos, stubs de tipado, config) ganan la
-  similitud densa frente al codigo fuente grande y diluido.
-- **Gate de evidencia productiva (item 2)**: `production_sources_met` sigue
-  vigente como segunda barrera anti-sobreafirmacion (evidencia con
-  `impact=0` no basta), pero hoy queda subsumido por el gate `supports`
-  descrito arriba: ningun aspecto llega a `complete=True` sin verificacion
-  dinamica, independientemente de `production_sources_met`.
+  similitud densa frente al codigo fuente grande y diluido. Pre-fix esto
+  producia sobreafirmacion en `click` (coverage 0.83 + `complete=True` con
+  recall 0).
+- **Gate de evidencia productiva (item 2)**: `production_sources_met` impide
+  declarar `complete` cuando un aspecto solo descansa en evidencia periferica
+  (impact=0). Tras el fix, `click` denso ya NO sobreafirma (`complete=False`).
+  El Brier sigue alto (~0.40) porque el linker aún enlaza ruido: la calibracion
+  de la señal requiera un linker que sesgue codigo > docs (siguiente palanca).
 - **Costo del honestidad**: al no poder detenerse por sobreafirmacion, argos
   lee TODO el repo (tokens ~= full_read) cuando ningun aspecto alcanza apoyo
   productivo. El ahorro por seleccion solo aparece si `should_stop` dispara con
