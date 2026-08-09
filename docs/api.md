@@ -207,11 +207,193 @@ componentes independientes sin haber podido comprobar el alcance contradiría el
 propio conteo. El motivo se declara en `missing_scope_constraints` en lugar de
 quedar implícito. Una restricción inválida **nunca** se reinterpreta como
 «sin filtro»: un valor truthy pero no textual limita igual que su ausencia.
+
+### Verificadores concretos: dependencias PEP 621 y PEP 508
+
+`argos_epistemic.dependency_verifiers` implementa los dos primeros verificadores
+sobre el protocolo de D.
+
+- `DependencyTarget(name, specifier="", marker="", scope="core", extras=())`:
+  el claim estrecho a comprobar. `scope="core"` son las dependencias centrales
+  de `project.dependencies`; `scope=f"extra:{nombre}"` un grupo de
+  `project.optional-dependencies`. Los `extras` son los sub-features
+  solicitados por el propio requirement (`pkg[extra1]`), no el grupo.
+- `make_pep621_verifier(target)`: comprueba `pyproject.toml` con `tomllib`.
+  Ignora `build-system.requires` y toda tabla `tool.*` — ninguna representa una
+  dependencia runtime bajo PEP 621. Si `dependencies` está en `project.dynamic`,
+  nunca produce `refutes` por ausencia estática.
+- `make_pep508_verifier(target)`: comprueba un archivo estilo
+  `requirements.txt` con `packaging.requirements.Requirement`. Distingue
+  requisitos PEP 508 de directivas de pip (`-r`, `-c`, `-e`, `--index-url`,
+  etc.); sólo `-r`/`--requirement` y `-c`/`--constraint` marcan el archivo como
+  no completamente inspeccionado (pueden ocultar declaraciones en otro
+  archivo), y sólo entonces una ausencia degrada a `unknown` con esa
+  limitación explícita. El resto de directivas no son evidencia de ausencia ni
+  de invalidez.
+
+El claim es deliberadamente estrecho: *"el repositorio declara la dependencia X
+bajo la restricción Y para el alcance Z en la revisión R."* Ningún verificador
+afirma instalación, importabilidad, resolubilidad, compatibilidad de entorno ni
+funcionamiento — son verificadores estáticos.
+
+Semántica de resultado por objetivo:
+
+- mismo nombre, alcance, specifier, marker y extras → `supports`;
+- mismo nombre y alcance pero specifier, marker o extras distintos → `refutes`
+  (el archivo contradice directamente el claim esperado);
+- nombre/alcance ausente en un archivo completamente inspeccionado → `unknown`;
+- nombre/alcance ausente con includes sin resolver → `unknown` con
+  `unresolved_includes_may_hide_declaration`, nunca `refutes`;
+- TOML o requirement PEP 508 inválido → `degraded`/`unknown` con diagnóstico
+  estructurado, nunca excepción.
+
+Una URL de referencia directa (`pkg @ https://user:token@host/...`) **nunca se
+retiene**, ni siquiera saneada: userinfo, query string y fragmento pueden
+llevar un secreto por igual (`?token=...`, `#token`), así que
+`ParseOutcome` sólo conserva un contador (`direct_reference_count`) y el
+diagnóstico `direct_reference_not_supported` — nunca la cadena de la URL. Ni
+`repr(ParseOutcome)` ni ningún claim/límite/degradación/reporte pueden
+contener una URL de manifiesto.
+
+`looks_pip_compile_generated_from(content, source_filename)` es un heurístico
+conservador: sólo detecta una cabecera de generación explícita que nombra el
+archivo origen. El llamador que confirme derivación debe pasar
+`derived_from=(parent_result.result_id,)` a `run_verifier` — la relación de D
+liga por `result_id` del padre, no por huella de raíz. Sin cabecera detectada,
+dos archivos cuentan como fuentes independientes por defecto: es el caso
+positivo que D fue diseñado para reconocer.
+
 - `proposition_from_verification(result, goal_name)`: **única** conversión de
   `VerificationResult` a `Proposition`. Devuelve `None` para resultados no
   probatorios y conserva toda la procedencia, incluido
   `verification_result_id`. Reconstruir proposiciones a mano reabriría el
   camino donde la procedencia se afirma en vez de transportarse.
+
+#### Frontera automática: `analyze_path` invoca estos verificadores
+
+`extract_system`/`analyze_path` **sí** invocan estos verificadores cuando el
+`goal` opta explícitamente:
+
+```python
+goal = {
+    "name": "dependency-audit",
+    "aspects": ["requests"],                 # aspectos reales del goal
+    "target_revision": "rev-abc123",          # obligatorio, no vacío
+    "dependency_targets": [
+        {"name": "requests", "specifier": ">=2.0", "scope": "core"},
+        # o DependencyTarget(...) directamente
+    ],
+}
+report = analyze_path(root, goal=goal, budget=budget)
+```
+
+- **Opt-in por presencia, no por verdad** (`"dependency_targets" in goal`):
+  `dependency_targets=None/0/""` también activa la frontera — se clasifica
+  como colección inválida (diagnóstico `invalid_dependency_targets_collection`)
+  en vez de tratarse silenciosamente como «no solicitado». Una lista vacía
+  válida activa la frontera sin diagnóstico y sin trabajo.
+- **`target_revision` obligatorio**: ausente o vacío produce
+  `missing_target_revision` y ningún verificador se ejecuta.
+- **Alcance real del goal, no el nombre propio del target**: cada target se
+  compara contra los aspectos REALES del goal (`derive_goal_aspects`). Un
+  target cuyo `canonical_name` no pertenece a esos aspectos nunca se ejecuta —
+  produce `dependency_target_outside_goal:<nombre>` y no puede contaminar,
+  como `refutes` o como `supports`, la cobertura/riesgo/completitud de un
+  aspecto que nunca lo pidió.
+- **Cada manifiesto se parsea una sola vez**; todos los targets aceptados se
+  resuelven contra ese único `ParseOutcome` — no hay reparseo por target.
+- **Deduplicación e identidad canónica**: targets con la misma identidad
+  (nombre, alcance, specifier, marker, extras canónicos) colapsan a uno solo
+  antes de ejecutar nada — 1000 copias del mismo target no producen 1000
+  ejecuciones, 1000 unidades de costo ni cobertura duplicada. Un tope
+  (`MAX_DEPENDENCY_TARGETS`) acota además el trabajo por llamada; el exceso se
+  reporta explícitamente vía `dependency_targets_capped`, nunca se descarta en
+  silencio.
+- **Costo cobrado únicamente por trabajo real**: un manifiesto inexistente, un
+  symlink rechazado o un target sin ningún manifiesto disponible para
+  resolverse **cuestan cero** — no hay lectura, no hay ejecución, no hay cargo.
+  Un manifiesto real se cobra con el tamaño obtenido de `fstat()` sobre el
+  MISMO descriptor ya abierto — antes de leer sus bytes — y la lectura en sí
+  es binaria y acotada a `MAX_MANIFEST_BYTES + 1`. Un target se cobra y
+  ejecuta **todo o nada** contra el conjunto de manifiestos disponibles (0, 1
+  o 2): si el presupuesto no cubre el costo de resolverlo contra TODOS los
+  manifiestos disponibles, el target completo se omite con diagnóstico
+  `dependency_target_budget_exhausted:<nombre>` — nunca una ejecución parcial.
+  `executions == len(results)`, y el componente de `charged_tool` atribuible a
+  targets es `accepted_targets_ejecutados × manifiestos_disponibles` —
+  reconstruible a partir de los campos públicos del `DependencyVerificationOutcome`.
+- **Lectura symlink-safe en una sola apertura fail-closed**: `os.open(...,
+  O_NOFOLLOW)` (cuando el sistema operativo lo soporta) hace que el rechazo de
+  symlink sea parte del propio `open()` atómico — no hay una comprobación
+  `is_symlink()` seguida de una apertura separada que un reemplazo
+  concurrente pudiera colar. `fstat()` se hace sobre el descriptor ya abierto,
+  nunca sobre una ruta stat-eada por separado. Symlinks internos, externos o
+  rotos se rechazan igual — `<archivo>:symlink_rejected` — nunca se sigue un
+  enlace en silencio.
+- **Costo íntegramente visible en el reporte**: `report["cost"]["phases"]
+  ["dependency_verification"]` expone `tokens`, `tools`, `manifests_inspected`
+  y `executions`; los totales `cost.estimated_tokens`/`observed_tokens`
+  incluyen este cargo. El bucle de `analyze_system` comprueba los umbrales
+  ANTES de comprobar la capacidad del presupuesto: si el propio verificador
+  gastó la última unidad de presupuesto pero los umbrales ya estaban
+  satisfechos, `termination_reason` es `thresholds_met`, nunca
+  `budget_exhausted` sobrescribiendo un `complete=True` ya alcanzado.
+- **`report["dependency_verification"]`**: sección pública y saneada, presente
+  siempre (`{"enabled": False}` cuando el goal no opta). Cuando opta:
+  `evaluated_target_revision`, `requested_targets`/`accepted_targets`/
+  `rejected_targets`, `families_executed`, `manifests_inspected`,
+  `verification_result_count`, `results` (lista de `{result_id, outcome,
+  aspect, limitations, degradations}` — nunca contenido de manifiesto ni URL),
+  `diagnostics`, `cost`. Aparece incluso cuando ningún `VerificationResult`
+  produjo una `Proposition` probatoria (todo `unknown`/`degraded`), para que
+  un target inválido, sin espacio, sin presupuesto o fuera de alcance quede
+  visible en vez de desaparecer. `goal_aspects` se valida estrictamente antes
+  de iterarse (sólo `list`/`tuple` de strings no vacíos, sin truthiness ni
+  coerción) — un valor hostil (`7`, `object()`, una cadena suelta, un `dict`)
+  nunca lanza excepción y produce `invalid_goal_aspects` con cero targets
+  aceptados y cero costo.
+- **`analyze_system(..., verification_results=..., dependency_verification_outcome=...)`**
+  son dos parámetros deliberadamente SEPARADOS:
+  - `verification_results` transporta `VerificationResult` genéricos (de
+    cualquier frontera de verificación externa, no sólo dependencias). Cada
+    candidato pasa, en este orden estricto, por: (1) `validate_verification_result`
+    — un objeto de otro tipo (incluida una `Proposition` construida a mano) o
+    un `VerificationResult` cuya identidad ya no coincide con sus propios
+    campos (alterado con `dataclasses.replace`) se descarta aquí; (2)
+    pertenencia de `result.aspect` a los aspectos REALES de este goal — un
+    resultado genuino y válido producido para OTRO goal nunca contamina éste;
+    (3) `result.target_revision` debe coincidir EXACTAMENTE con
+    `goal["target_revision"]` — un resultado genuino, válido y del aspecto
+    correcto pero de una revisión vieja tampoco cuenta; (4) sólo entonces
+    `proposition_from_verification`, la única conversión, que además rechaza
+    lo no probatorio. `report["verification_admission"]` expone
+    `verification_candidates_offered`/`verification_results_valid`/
+    `verification_propositions_admitted`/`verification_candidates_rejected`/
+    `verification_rejection_reasons` (`invalid_result`, `aspect_outside_goal`,
+    `revision_mismatch`, `non_probative`) — nunca se presenta basura
+    rechazada (un `int`, un `dict`, una `Proposition` fabricada) como si fuera
+    un "resultado de verificación" contado junto a los genuinos.
+  - `dependency_verification_outcome` DEBE ser un
+    `dependency_verifiers.DependencyVerificationOutcome` tipado — nunca un
+    `dict`. La sección pública del reporte y su costo se derivan SIEMPRE
+    dentro de `analyze_system`, a partir de ese único objeto (nunca de un
+    resumen que el llamador construyó por su cuenta), así que resultados y
+    resumen no pueden llegar incongruentes entre sí. Un objeto del tipo
+    equivocado se ignora con diagnóstico
+    `invalid_dependency_verification_outcome`, sin excepción; un costo
+    negativo o de tipo no entero se recorta a cero con diagnóstico
+    `invalid_dependency_verification_cost`. Pasar sólo
+    `dependency_verification_outcome` (sin también pasar sus `.results` por
+    `verification_results`) hace aparecer la sección del reporte pero **no**
+    produce ninguna `Proposition` — los dos parámetros son independientes por
+    diseño; `analyze_path` siempre pasa ambos.
+
+Los conflictos de la evidencia admitida inicialmente (`verification_results`)
+se calculan **antes** de la primera comprobación de umbrales/capacidad del
+bucle de `analyze_system`, no sólo después de que corra una acción: un
+`supports` y un `refutes` genuinos sobre el mismo claim normalizado, admitidos
+de entrada, producen un conflicto visible incluso con `budget=(0, 0)`, donde
+el cuerpo del bucle nunca se ejecuta.
 
 La independencia debe **demostrarse**: una fuente sin familia, ejecución,
 revisión objetivo o raíz no aporta grupo adicional, y `min_sources > 1` no puede

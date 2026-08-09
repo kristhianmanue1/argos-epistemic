@@ -53,6 +53,7 @@ candidate actions -> evidence -> verification
 | `dynamic.py` | ejecución de tests y señales runtime | aislamiento de código hostil |
 | `sandbox.py` | entorno aislado y saneado para ejecución dinámica | aislamiento fuerte de OS/red |
 | `verifiers.py` | protocolo de verificación estática, normalización de claims e independencia entre fuentes | que un claim estrecho implique una propiedad amplia |
+| `dependency_verifiers.py` | verificadores concretos PEP 621 y PEP 508 sobre el protocolo de `verifiers.py` | instalación, resolubilidad o funcionamiento de la dependencia |
 | `dense_semantic.py` | backend denso opcional para `S_semantic` | fidelidad semántica por defecto |
 | `ts_extractors.py` | registro de extractores L3 basados en tree-sitter | cobertura de todos los lenguajes |
 | `history.py`, `logs.py`, `profile.py`, `coverage.py` | evidencia L5 histórica u operacional | vigencia o causalidad |

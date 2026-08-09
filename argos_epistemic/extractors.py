@@ -562,4 +562,56 @@ def analyze_path(
             _deferred(f"L5:{label}", "(dynamic)", 5, 0.85, "test-run", "dynamic",
                       lambda: _unwrap(dynamic_artifact(root_path, timeout=dynamic_timeout)))
         )
-    return analyze_system(system, goal or {}, budget)
+
+    resolved_goal = goal or {}
+    verification_results, dependency_verification_outcome = _resolve_dependency_verification(
+        resolved_goal, root_path, budget
+    )
+
+    return analyze_system(
+        system,
+        resolved_goal,
+        budget,
+        verification_results=verification_results,
+        dependency_verification_outcome=dependency_verification_outcome,
+    )
+
+
+def _resolve_dependency_verification(
+    resolved_goal: dict[str, Any], root_path: Any, budget: Any
+) -> tuple[tuple[Any, ...], Any]:
+    """Run the dependency verifiers when the goal opts in, returning the
+    ``(verification_results, dependency_verification_outcome)`` pair to hand to
+    ``analyze_system``.
+
+    Opt-in is the PRESENCE of the ``"dependency_targets"`` key in the goal, not
+    its truthiness (P1-6): ``dependency_targets=None/0/""`` still opts in and is
+    then classified by the boundary itself (invalid type vs valid-empty), so a
+    caller mistake produces a diagnostic instead of silently doing nothing. The
+    fixture under analysis never declares its own supports/refutes through this
+    path; manifests are read directly from disk (full, bounded, symlink-
+    rejecting), never from ``system["artifacts"]``, which discovery may have
+    truncated.
+
+    The results (``VerificationResult``) are handed to ``analyze_system`` through
+    the GENERIC ``verification_results`` parameter, NEVER a ``Proposition`` built
+    here: the automatic boundary transports results only, and
+    ``proposition_from_verification`` is the sole conversion. The typed outcome
+    is ALSO passed, separately, so ``analyze_system`` can derive the public
+    report section and its cost from that one object itself (P1-6) - this
+    function never builds that summary.
+    """
+    if "dependency_targets" not in resolved_goal:
+        return (), None
+    from .algorithm import derive_goal_aspects
+    from .dependency_verifiers import verify_dependency_targets
+
+    goal_aspect_names = tuple(a["name"] for a in derive_goal_aspects(resolved_goal))
+    outcome = verify_dependency_targets(
+        root_path,
+        resolved_goal["dependency_targets"],
+        resolved_goal.get("target_revision", ""),
+        budget,
+        goal_aspect_names,
+    )
+    return outcome.results, outcome

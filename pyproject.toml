@@ -19,7 +19,13 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Quality Assurance",
 ]
-dependencies = []
+dependencies = [
+    # Requirement/InvalidRequirement (PEP 508 parsing) and canonicalize_name
+    # (PEP 503 name normalization) back the pep508 verifier; both APIs have
+    # been stable well before this floor, chosen for availability rather than
+    # any specific feature.
+    "packaging>=23.2",
+]
 
 [project.urls]
 Homepage = "https://github.com/kristhianmanue1/argos-epistemic"

@@ -564,7 +564,14 @@ def run_verifier(
     The payload is validated BEFORE the verifier is invoked: running an
     instrument against a malformed input could have side effects and its output
     could never be trusted anyway, so an invalid payload short-circuits to a
-    degraded result and the callable is never called.
+    degraded result and the callable is never called. When a returned claim
+    fails validation, a fresh synthetic ``VerifierClaim`` is stamped rather
+    than reusing ``claim`` itself: being a ``VerifierClaim`` instance does not
+    mean its FIELDS are safe types, and reusing ``claim.aspect``/``claim_text``/
+    ``scope`` (the very fields that made ``problems`` non-empty, e.g.
+    ``aspect=object()``) would let a hostile value reach
+    ``compute_result_id``'s canonicalization and raise out of a function that
+    must never raise on untrusted verifier output.
     """
     derived_items, derived_problem = _text_tuple(derived_from, "derived_from")
     derived = tuple(sorted(set(derived_items)))
@@ -604,9 +611,7 @@ def run_verifier(
     for claim in claims:
         problems = _validate_claim(claim, safe_payload)
         if problems:
-            safe = claim if isinstance(claim, VerifierClaim) else VerifierClaim(
-                DEGRADED, "", "invalid verifier output", "", 0.0
-            )
+            safe = VerifierClaim(DEGRADED, "", "invalid verifier output", "", 0.0)
             results.append(
                 _stamp(safe, registration, safe_payload, safe_execution, derived,
                        outcome=DEGRADED, degradations=problems)

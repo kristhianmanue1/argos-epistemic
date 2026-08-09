@@ -1723,6 +1723,8 @@ def synthesize_report(
     cost: dict[str, Any] | None = None,
     termination_reason: str = "unknown",
     declaration_diagnostics: list[dict[str, Any]] | None = None,
+    verification_admission: dict[str, Any] | None = None,
+    dependency_verification: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     by_aspect: dict[str, list[Proposition]] = {}
     for prop in propositions:
@@ -1839,6 +1841,13 @@ def synthesize_report(
         "goal": goal.get("name"),
         "evidence_count": len(evidence),
         "belief_count": len(beliefs),
+        "verification_admission": verification_admission or {
+            "verification_candidates_offered": 0,
+            "verification_results_valid": 0,
+            "verification_propositions_admitted": 0,
+            "verification_candidates_rejected": 0,
+            "verification_rejection_reasons": [],
+        },
         "proposition_count": len(propositions),
         "conflict_count": len(conflicts),
         "compressed_count": sum(1 for e in evidence if e.compressed),
@@ -1885,6 +1894,7 @@ def synthesize_report(
             "tool": budget.tool_remaining,
         },
         "cost": cost or {"estimated_tokens": 0, "observed_tokens": 0},
+        "dependency_verification": dependency_verification or {"enabled": False},
         "inventory": inventory,
         "completion": {
             "procedure_complete": complete,
@@ -1921,26 +1931,204 @@ def synthesize_report(
     }
 
 
-def analyze_system(system: dict[str, Any], goal: dict[str, Any], budget: Budget, policy: dict[str, Any] | None = None) -> dict[str, Any]:
+_REJECTION_INVALID_RESULT = "invalid_result"
+_REJECTION_ASPECT_OUTSIDE_GOAL = "aspect_outside_goal"
+_REJECTION_REVISION_MISMATCH = "revision_mismatch"
+_REJECTION_NON_PROBATIVE = "non_probative"
+
+
+def _admit_verification_results(
+    propositions: PropositionStore,
+    verification_results: Iterable[Any],
+    allowed_aspects: frozenset[str],
+    required_target_revision: str,
+) -> dict[str, Any]:
+    """THE only admission path for externally-produced verification evidence.
+
+    Order (P1-1): (1) ``validate_verification_result`` - a hand-built
+    ``Proposition``, a tampered ``VerificationResult`` (``result_id`` no longer
+    matches its own fields) or an object of any other type is rejected here,
+    before anything else, because fabricating authority by constructing a
+    ``Proposition`` directly and feeding it to this function is not possible -
+    this function never accepts a ``Proposition`` as input; (2) the result's
+    ``aspect`` must belong to THIS goal's real required aspects - a genuine,
+    valid result produced for a DIFFERENT goal must never contaminate this
+    one's coverage/risk/conflicts/completion; (3) the result's
+    ``target_revision`` must match exactly what THIS analysis declared - a
+    genuine, valid, in-scope result from a stale revision must never count
+    either; (4) only then ``proposition_from_verification``, the sole
+    conversion, which additionally refuses anything non-probative.
+
+    Returns structured, sanitized counters - never raw rejected objects (which
+    could be anything, including a hostile ``__repr__``). A non-iterable
+    ``verification_results`` (e.g. an int) yields nothing: the caller error is
+    invisible in the counters rather than crashing the whole analysis.
+    """
+    offered = 0
+    valid = 0
+    admitted = 0
+    rejected = 0
+    reasons: set[str] = set()
+    try:
+        iterator = iter(verification_results)
+    except TypeError:
+        iterator = iter(())
+    for candidate in iterator:
+        offered += 1
+        if validate_verification_result(candidate):
+            rejected += 1
+            reasons.add(_REJECTION_INVALID_RESULT)
+            continue
+        valid += 1
+        if candidate.aspect not in allowed_aspects:
+            rejected += 1
+            reasons.add(_REJECTION_ASPECT_OUTSIDE_GOAL)
+            continue
+        if candidate.target_revision != required_target_revision:
+            rejected += 1
+            reasons.add(_REJECTION_REVISION_MISMATCH)
+            continue
+        prop = proposition_from_verification(candidate, "")
+        if prop is None:
+            rejected += 1
+            reasons.add(_REJECTION_NON_PROBATIVE)
+            continue
+        propositions.add(prop)
+        admitted += 1
+    return {
+        "verification_candidates_offered": offered,
+        "verification_results_valid": valid,
+        "verification_propositions_admitted": admitted,
+        "verification_candidates_rejected": rejected,
+        "verification_rejection_reasons": sorted(reasons),
+    }
+
+
+def _admit_dependency_verification(
+    outcome: Any, goal: dict[str, Any]
+) -> tuple[dict[str, Any] | None, tuple[Any, ...], int, int]:
+    """Derive the public report section and cost from a TYPED outcome only
+    (P1-6) - never from a caller-supplied dict.
+
+    A caller cannot hand ``analyze_system`` an arbitrary "summary" dict and
+    have it trusted as if it were real: the only accepted shape is
+    ``dependency_verifiers.DependencyVerificationOutcome`` (or ``None``), and
+    the public section AND its cost are both derived from that ONE object,
+    inside this boundary, using the same fields the caller cannot fabricate
+    independently of each other (results/diagnostics/cost all come from one
+    place, so they cannot go incongruent). An object of the wrong type is
+    never trusted: it is ignored, with a diagnostic recorded, rather than
+    raising or being read defensively field-by-field.
+
+    Returns ``(dependency_verification, results, dependency_tokens, dependency_tool)``.
+    """
+    if outcome is None:
+        return None, (), 0, 0
+    from .dependency_verifiers import (
+        DependencyVerificationOutcome,
+        dependency_verification_report,
+    )
+
+    if not isinstance(outcome, DependencyVerificationOutcome):
+        return (
+            {"enabled": False, "diagnostics": ["invalid_dependency_verification_outcome"]},
+            (),
+            0,
+            0,
+        )
+    tokens = outcome.charged_tokens
+    tool = outcome.charged_tool
+    cost_diagnostics: list[str] = []
+    if isinstance(tokens, bool) or not isinstance(tokens, int) or tokens < 0:
+        cost_diagnostics.append("invalid_dependency_verification_cost")
+        tokens = 0
+    if isinstance(tool, bool) or not isinstance(tool, int) or tool < 0:
+        cost_diagnostics.append("invalid_dependency_verification_cost")
+        tool = 0
+    report = dependency_verification_report(
+        outcome, str(goal.get("target_revision", "") or "")
+    )
+    if cost_diagnostics:
+        report = dict(report)
+        report["cost"] = {"tokens": tokens, "tool": tool}
+        report["diagnostics"] = sorted({*report.get("diagnostics", []), *cost_diagnostics})
+    return report, outcome.results, tokens, tool
+
+
+def analyze_system(
+    system: dict[str, Any],
+    goal: dict[str, Any],
+    budget: Budget,
+    policy: dict[str, Any] | None = None,
+    verification_results: Iterable[Any] = (),
+    dependency_verification_outcome: Any = None,
+) -> dict[str, Any]:
+    """``verification_results`` are externally-produced ``VerificationResult``
+    objects admitted before the budgeted loop starts, subject to the SAME
+    aspect-membership and target-revision scoping this goal's own extraction
+    loop is subject to (see ``_admit_verification_results``) - a genuine
+    result produced for a different goal or a stale revision cannot affect
+    this analysis. They are converted to ``Proposition`` exclusively through
+    ``proposition_from_verification``; this function never accepts a
+    ``Proposition`` directly through this parameter, so a caller cannot
+    manufacture authority by constructing one by hand and passing it in as if
+    it had been verified.
+
+    ``dependency_verification_outcome``, when supplied, MUST be a
+    ``dependency_verifiers.DependencyVerificationOutcome`` (never a plain
+    dict) - the public report section and its cost are both derived from that
+    ONE typed object inside this function (see
+    ``_admit_dependency_verification``), so a caller cannot supply a "results"
+    list and a separately-fabricated, incongruent public summary. This
+    parameter is deliberately SEPARATE from ``verification_results``: passing
+    the outcome's own ``.results`` through ``verification_results`` is still
+    required for its findings to become propositions - this parameter alone
+    only contributes the sanitized report section and cost, and cannot by
+    itself fabricate a proposition, coverage or completion.
+
+    Conflicts from the initially-admitted evidence are computed BEFORE the
+    loop's first threshold/capacity check (P2-1): a genuine SUPPORTS and a
+    genuine REFUTES on the same normalized claim, admitted up front, must be
+    visible as a conflict even when budget is 0/0 and the loop body never runs.
+    In the loop, thresholds are checked BEFORE budget capacity (P1-3): if the
+    externally-admitted evidence already satisfies the goal, the fact that
+    ``verify_dependency_targets`` spent the LAST unit of budget doing so must
+    never be reported as ``budget_exhausted`` overriding an already-met
+    ``thresholds_met`` - ``complete=True`` always implies
+    ``termination_reason == "thresholds_met"``, never a blocking reason code.
+    """
     evidence = EvidenceStore()
     beliefs = BeliefStore()
     propositions = PropositionStore()
-    conflicts = ConflictStore()
     required_aspects = derive_goal_aspects(goal)
     aspect_names = [a["name"] for a in required_aspects]
+    evaluated_revision = str(goal.get("target_revision", "") or "")
+    verification_admission = _admit_verification_results(
+        propositions, verification_results, frozenset(aspect_names), evaluated_revision
+    )
+    dependency_verification, _dep_results, dependency_tokens, dependency_tool = (
+        _admit_dependency_verification(dependency_verification_outcome, goal)
+    )
+    conflicts = ConflictStore()
+    conflicts.merge(
+        detect_proposition_conflicts(
+            propositions,
+            similarity=goal.get("conflict_similarity") or _jaccard,
+            threshold=goal.get("conflict_threshold", 0.5),
+        )
+    )
     enabled_nf = select_non_functional_extractors(goal)
     linker = goal.get("aspect_linker") or _default_linker
     min_sources = int(goal.get("min_sources_per_aspect", 2))
-    evaluated_revision = str(goal.get("target_revision", "") or "")
     require_production = goal.get("require_production_evidence", True) and system_has_production(system)
     coverage = 0.0
     residual_risk = 1.0
-    cost_estimated = 0
-    cost_observed = 0
+    cost_estimated = dependency_tokens
+    cost_observed = dependency_tokens
     termination_reason = "unknown"
     ev_conf: dict[str, float] = {}
     declaration_diagnostics: list[dict[str, Any]] = []
-    while budget.has_capacity():
+    while True:
         coverage = compute_coverage(propositions, required_aspects, goal.get("corroboration", CORROBORATION))
         residual_risk = compute_residual_risk(propositions, required_aspects, goal)
         breadth_ok = min_sources_met(
@@ -1949,6 +2137,9 @@ def analyze_system(system: dict[str, Any], goal: dict[str, Any], budget: Budget,
         prod_ok = (not require_production) or production_sources_met(propositions, required_aspects)
         if should_stop(coverage, residual_risk, conflicts, goal, budget, breadth_ok, prod_ok):
             termination_reason = "thresholds_met"
+            break
+        if not budget.has_capacity():
+            termination_reason = "budget_exhausted"
             break
         actions = generate_candidate_actions(
             system, goal, evidence, beliefs, conflicts, enabled_nf, propositions
@@ -2010,10 +2201,29 @@ def analyze_system(system: dict[str, Any], goal: dict[str, Any], budget: Budget,
             protected_ids.update(conflict.evidence_for)
             protected_ids.update(conflict.evidence_against)
         evidence.compress(budget, preserve_provenance=True, preserve_invariants=protected_ids)
-    if not budget.has_capacity():
-        termination_reason = "budget_exhausted"
     coverage = compute_coverage(propositions, required_aspects, goal.get("corroboration", CORROBORATION))
     residual_risk = compute_residual_risk(propositions, required_aspects, goal)
+    phases: dict[str, Any] = {
+        "discovery": {
+            "files": int((system.get("inventory") or {}).get("files_discovered", 0)),
+            "bytes": int((system.get("inventory") or {}).get("bytes_discovered", 0)),
+        },
+        "extraction": {
+            "files": int((system.get("inventory") or {}).get("files_selected", 0)),
+            "bytes": int((system.get("inventory") or {}).get("bytes_read", 0)),
+        },
+        "analysis": {
+            "estimated_tokens": cost_estimated - dependency_tokens,
+            "observed_tokens": cost_observed - dependency_tokens,
+        },
+    }
+    if dependency_verification is not None:
+        phases["dependency_verification"] = {
+            "tokens": dependency_tokens,
+            "tools": dependency_tool,
+            "manifests_inspected": list(dependency_verification.get("manifests_inspected", [])),
+            "executions": dependency_verification.get("verification_result_count", 0),
+        }
     return synthesize_report(
         system, goal, evidence, beliefs, propositions, conflicts, required_aspects,
         coverage,
@@ -2022,23 +2232,12 @@ def analyze_system(system: dict[str, Any], goal: dict[str, Any], budget: Budget,
         {
             "estimated_tokens": cost_estimated,
             "observed_tokens": cost_observed,
-            "phases": {
-                "discovery": {
-                    "files": int((system.get("inventory") or {}).get("files_discovered", 0)),
-                    "bytes": int((system.get("inventory") or {}).get("bytes_discovered", 0)),
-                },
-                "extraction": {
-                    "files": int((system.get("inventory") or {}).get("files_selected", 0)),
-                    "bytes": int((system.get("inventory") or {}).get("bytes_read", 0)),
-                },
-                "analysis": {
-                    "estimated_tokens": cost_estimated,
-                    "observed_tokens": cost_observed,
-                },
-            },
+            "phases": phases,
         },
         termination_reason,
         declaration_diagnostics,
+        verification_admission,
+        dependency_verification,
     )
 
 
