@@ -34,6 +34,11 @@ Un contribuyente sin acceso puede ejecutar los gates públicos restantes.
 .venv/bin/python scripts/check_an_kla_context.py
 ```
 
+Para un candidato de release, ejecuta además el flujo reproducible descrito en
+[`docs/release.md`](docs/release.md): construye wheel y sdist desde un árbol
+limpio, pasa `twine check`, inspecciona ambos artefactos con
+`scripts/check_release_artifacts.py` e instala el wheel en un entorno nuevo.
+
 Si un cambio altera resultados reproducibles, regenera primero el benchmark y
 después los casos de estudio:
 

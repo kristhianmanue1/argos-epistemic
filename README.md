@@ -7,7 +7,7 @@ conclusiones auditables.
 El consumidor principal es otro agente. La salida canónica es estructurada y
 verificable; Markdown es una vista secundaria para inspección humana.
 
-> Estado: desarrollo temprano (`0.2.0.dev0`). Los contratos versionados son
+> Estado: release candidate (`0.2.0rc1`). Los contratos versionados son
 > utilizables, pero la API Python aún puede cambiar antes de `1.0`.
 
 ## Qué ofrece hoy
@@ -23,6 +23,20 @@ verificable; Markdown es una vista secundaria para inspección humana.
 
 Argos no ofrece todavía CLI estable, MCP, API remota, aislamiento fuerte,
 facturación, firma de attestations ni compatibilidad `1.x`.
+
+## Instalación de la release candidate
+
+Requiere Python 3.12. Mientras el paquete no esté publicado en PyPI, instala el
+wheel verificado mediante SHA-256 desde la GitHub Release `v0.2.0rc1`:
+
+```bash
+python3.12 -m venv .venv
+.venv/bin/python -m pip install \
+  https://github.com/kristhianmanue1/argos-epistemic/releases/download/v0.2.0rc1/argos_epistemic-0.2.0rc1-py3-none-any.whl
+```
+
+Verifica antes el SHA-256 publicado junto al artefacto. Esta prerelease no se
+promoverá a `0.2.0` hasta recibir validación de consumidores.
 
 ## Instalación para desarrollo
 
@@ -99,6 +113,7 @@ del mismo claim; duplicar una lectura, raíz o ejecución no aumenta el valor.
 - [CONTRIBUTING.md](CONTRIBUTING.md): flujo de contribución y gates.
 - [SECURITY.md](SECURITY.md): reporte responsable de vulnerabilidades.
 - [CHANGELOG.md](CHANGELOG.md): cambios por versión.
+- [docs/release.md](docs/release.md): construcción, verificación y publicación.
 
 Los casos de estudio reproducibles están en `examples/`; los benchmarks y sus
 limitaciones están en `bench/`.

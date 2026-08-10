@@ -25,7 +25,7 @@ from argos_epistemic import (
 def manifest_fixture() -> dict:
     return build_manifest(
         target={"type": "git", "revision": "a" * 40, "dirty": False},
-        evaluator={"name": "argos-epistemic", "version": "0.2.0.dev0"},
+        evaluator={"name": "argos-epistemic", "version": "0.2.0rc1"},
         goal={"name": "audit", "aspects": ["write", "test"]},
         semantic_profile={"name": "char-ngram-v1", "threshold": "0.55"},
         discovery_profile={"name": "legacy-v1", "max_code_artifacts": 400},
@@ -58,7 +58,7 @@ def test_manifest_is_deterministic_and_has_golden_fingerprint():
     first = manifest_fixture()
     second = manifest_fixture()
     assert first == second
-    assert first["fingerprint"] == "sha256:93ec8e0080e209f51c9f188ea50868ee320fbbe630a8bfcf246556742627ba56"
+    assert first["fingerprint"] == "sha256:46e55182409a2427f01e9aacb82c7f499a4d4e28fd1bc491926e489755c78d58"
     verify_manifest(first)
 
 
