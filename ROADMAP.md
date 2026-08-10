@@ -21,7 +21,7 @@ hipótesis comercial en compromiso. El plan estratégico original se conserva en
 | 1 — Bundle local mínimo | completado | canonicalización, manifest, envelope, schemas y attestation |
 | 2 — Corpus y presupuesto honestos | completado | inventory, caps, costos, completion y reason codes |
 | 3 — Semántica auditable | completado | claims tipados, autoridad y conflictos estrictos |
-| 3.5 — Base documental y de confianza | en curso | separación de modelo, arquitectura, contratos y seguridad |
+| 3.5 — Base documental y de confianza | completado en `0.2.0rc1` | contratos, verificación estática, métricas independientes y release reproducible |
 | 4 — Acceso agentivo local | siguiente | CLI, recuperación progresiva y MCP de sólo lectura |
 | 5 — Servicio controlado | condicionado | API asíncrona, aislamiento y metering |
 | 6 — Verificación y escala | condicionado | firmas, perfiles comparables y objetivos compuestos |
@@ -43,6 +43,12 @@ Entregables:
 
 Criterio de salida: todos los documentos enlazan fuentes vigentes, no prometen
 capacidades ausentes y los siete gates permanecen verdes.
+
+Resultado: la fase A–F corrigió admisión, autoridad, independencia,
+verificadores declarativos y cobertura por claims; la consolidación de release
+añade migración, inspección de artefactos e instalación aislada. La prerelease
+`0.2.0rc1` conserva `coverage` como alias compatible antes de estabilizar
+`0.2.0`.
 
 No incluye portal de documentación, gobernanza multiequipo, catálogo completo
 de ADRs ni automatización de releases.

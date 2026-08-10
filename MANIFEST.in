@@ -1,0 +1,13 @@
+include ARCHITECTURE.md
+include CHANGELOG.md
+include CITATION.cff
+include CONTRIBUTING.md
+include LICENSE
+include MODEL.md
+include README.md
+include ROADMAP.md
+include SECURITY.md
+include requirements.txt
+recursive-include argos_epistemic/schemas *.json
+recursive-include docs *.md
+recursive-include scripts *.py

@@ -3,7 +3,11 @@
 Este proyecto sigue versionado semántico para releases del paquete. Los schemas
 mantienen además su propia versión en el nombre del contrato.
 
-## Unreleased — 0.2.0.dev0
+## Unreleased
+
+Sin cambios todavía.
+
+## 0.2.0rc1 — 2026-08-10
 
 ### Added
 
@@ -24,6 +28,31 @@ mantienen además su propia versión en el nombre del contrato.
 - el reporte separa recuperación, estructura, capacidad probatoria y perfiles
   de verificación observados;
 - el manifest liga el perfil y los parámetros de cobertura a su fingerprint.
+
+### Migration from 0.1.0
+
+- `coverage` continúa siendo un `float`, pero ahora es alias exacto de
+  `evidential_coverage`; deja de sumar volumen bruto de proposiciones y agrega
+  claims normalizados por componentes independientes;
+- los consumidores que mostraban progreso de descubrimiento deben usar
+  `retrieval_coverage` o `structural_coverage`, nunca inferirlo desde
+  `coverage`;
+- `coverage_capability` y `verification_profiles` son campos aditivos que
+  explican qué clase de prueba se observó y con qué perfil;
+- `complete=True` es deliberadamente más estricto: duplicados, aliases,
+  confianza cero, revisión ausente y procedencia incompleta no crean fuentes
+  independientes;
+- los verificadores PEP 621 y PEP 508 prueban únicamente declaraciones de
+  dependencias; no prueban instalación, importabilidad ni funcionamiento en
+  runtime;
+- los schemas públicos `v1` conservan su nombre y compatibilidad estructural.
+
+### Release validation
+
+- wheel y sdist inspeccionados por contenido, metadatos y rutas seguras;
+- instalación del wheel validada en un entorno Python 3.12 limpio;
+- 992 tests y los siete gates locales ejecutados sobre el candidato de release;
+  la fase F se verificó además antes y después de su merge.
 
 ## 0.1.0 — 2026-08-03
 
