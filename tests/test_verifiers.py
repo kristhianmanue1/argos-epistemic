@@ -1,9 +1,8 @@
 """Contract tests for the static verification protocol and independence (PR D).
 
-Independence is the gate that keeps ``complete`` honest while legacy coverage
-still aggregates by proposition volume, so these tests are adversarial by
-design: every way of making one source look like several is enumerated and
-refused.
+Independence is shared by coverage and the completion gate, so these tests are
+adversarial by design: every way of making one source look like several is
+enumerated and refused.
 
 Note on scope: D deliberately has **no** positive end-to-end completion test.
 Reaching ``complete=True`` without manually declared supports is E's job; here
@@ -25,6 +24,7 @@ from argos_epistemic.verifiers import (
     VerifierRegistration,
     independence_groups,
     independence_report,
+    independent_source_components,
     independent_source_count,
     normalized_claim_id,
     root_fingerprint,
@@ -167,6 +167,38 @@ def test_distinct_profiles_roots_and_executions_do_corroborate():
         _src("b", profile="pB", version="1", execution_id="run-2", roots=("r2",)),
     ]
     assert _count(sources) == 2
+
+
+@pytest.mark.parametrize(
+    "sources,revision,claim",
+    [
+        ([], REV, "claim-1"),
+        ([_src("a")], REV, "claim-1"),
+        (
+            [
+                _src("a", profile="pA", execution_id="run-a", roots=("r-a",)),
+                _src("b", profile="pB", execution_id="run-b", roots=("r-b",)),
+            ],
+            REV,
+            "claim-1",
+        ),
+        (
+            [
+                _src("a", profile="pA", execution_id="run-a", roots=("shared",)),
+                _src("b", profile="pB", execution_id="run-b", roots=("shared",)),
+            ],
+            REV,
+            "claim-1",
+        ),
+        ([_src("legacy", profile="", execution_id="", roots=())], REV, "claim-1"),
+        ([_src("other", revision="other")], REV, "claim-1"),
+        ([_src("unscoped")], "", "claim-1"),
+    ],
+)
+def test_component_view_matches_the_public_conservative_count(sources, revision, claim):
+    assert len(independent_source_components(sources, revision, claim)) == (
+        independent_source_count(sources, revision, claim)
+    )
 
 
 def test_same_family_different_versions_is_one_witness():
@@ -424,15 +456,14 @@ def _analyze(system, min_sources=2):
     return analyze_system(system, goal, Budget(tokens_remaining=10000, tool_remaining=20))
 
 
-def test_legacy_coverage_one_from_duplicates_still_cannot_complete():
-    """Binding until PR F replaces the legacy aggregation."""
+def test_legacy_duplicates_neither_inflate_coverage_nor_complete():
     identical = {"content": "cas", "level": 4, "relevance": 1.0, "kind": "code",
                  "supports": [{"aspect": "write", "claim": "writes use cas", "scope": "v1"}]}
     report = _analyze({
         "name": "dupes",
         "artifacts": [{"id": f"{name}.py", **identical} for name in ("a", "b", "c")],
     })
-    assert report["coverage"] >= 0.99, "legacy coverage does inflate from duplicates"
+    assert report["coverage"] == pytest.approx(0.3333, abs=1e-4)
     assert report["complete"] is False
     assert "insufficient_sources" in report["completion"]["reason_codes"]
 

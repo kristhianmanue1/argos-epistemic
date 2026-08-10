@@ -72,6 +72,11 @@ elevan cobertura. Sólo `supports` aporta evidencia positiva y `refutes`
 evidencia negativa. Una acción sugerida por el reporte nunca constituye
 autorización para ejecutarla.
 
+El reporte conserva `coverage` como alias numérico de `evidential_coverage` y
+añade `retrieval_coverage`, `structural_coverage`, `coverage_capability` y
+`verification_profiles`. La cobertura probatoria agrega fuentes independientes
+del mismo claim; duplicar una lectura, raíz o ejecución no aumenta el valor.
+
 ## Verificación local
 
 ```bash

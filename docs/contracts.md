@@ -39,9 +39,15 @@ Los schemas se distribuyen en `argos_epistemic.schemas` y pueden enumerarse con
 Las identidades son estables sólo dentro del perfil de canonicalización o
 extracción declarado. No son firmas ni conceden autoridad.
 
+La configuración del manifest incluye `coverage_profile`. Por defecto contiene
+`argos/claim-component-coverage-v1` y sus operadores auditables. Cambiar el
+perfil o sus parámetros cambia `configuration_fingerprint` y el fingerprint del
+manifest sin cambiar el significado de `evaluation-manifest-v1`.
+
 ## Relaciones y autoridad
 
-`supports` contribuye a cobertura y `refutes` aporta evidencia negativa. Las
+`supports` contribuye a cobertura sólo después de agruparse por claim y
+componente independiente; `refutes` aporta evidencia negativa. Las
 relaciones `mentions`, `tests`, `implements` y `configures` no son probatorias.
 
 `authority_class` describe cómo se obtuvo la relación. Es dato para la política

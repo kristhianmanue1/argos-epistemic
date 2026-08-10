@@ -1072,6 +1072,41 @@ def independent_source_count(
     return 1 if prepared.in_scope_incomplete else 0
 
 
+def independent_source_components(
+    sources: Iterable[Any],
+    required_target_revision: str = "",
+    required_normalized_claim_id: str | None = None,
+) -> tuple[tuple[str, ...], ...]:
+    """Return the exact conservative components used by corroboration.
+
+    Missing scope collapses all admissible sources to one component. With a
+    valid scope, complete provenance uses D's connected components and
+    incomplete in-scope provenance contributes one component only when no
+    demonstrated component exists. Conflicting and out-of-scope sources never
+    appear.
+    """
+    items = list(sources)
+    if not items:
+        return ()
+    revision, claim, problems = _scope_constraints(
+        required_target_revision, required_normalized_claim_id
+    )
+    if problems:
+        prepared = prepare_sources(items)
+        members = sorted(
+            {item.source_id for item in prepared.usable}
+            | set(prepared.in_scope_incomplete)
+        )
+        return (tuple(members),) if members else ()
+    prepared = prepare_sources(items, revision, claim)
+    groups = _group(prepared.usable)
+    if groups:
+        return tuple(tuple(members) for members in groups)
+    if prepared.in_scope_incomplete:
+        return (tuple(prepared.in_scope_incomplete),)
+    return ()
+
+
 def independence_report(
     sources: Iterable[Any],
     required_sources: int,

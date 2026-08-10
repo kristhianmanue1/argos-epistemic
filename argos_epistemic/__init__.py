@@ -19,6 +19,7 @@ from .algorithm import (
 from .behavior import FuncBehavior, behavior_summary, extract_behavior
 from .bundle import (
     CLAIM_SCHEMA,
+    COVERAGE_PROFILE,
     ENVELOPE_SCHEMA,
     INVENTORY_SCHEMA,
     MANIFEST_SCHEMA,
@@ -66,6 +67,7 @@ from .verifiers import (
     VerifierClaim,
     VerifierRegistration,
     independence_groups,
+    independent_source_components,
     independent_source_count,
     normalized_claim_id,
     register_verifier,
@@ -86,6 +88,7 @@ except Exception:  # pragma: no cover - optional heavy dep absent at import time
 __all__ = [
     "CANONICALIZATION_PROFILE",
     "CLAIM_SCHEMA",
+    "COVERAGE_PROFILE",
     "ENVELOPE_SCHEMA",
     "INVENTORY_SCHEMA",
     "MANIFEST_SCHEMA",
@@ -135,6 +138,7 @@ __all__ = [
     "git_log_summary",
     "history_artifact",
     "independence_groups",
+    "independent_source_components",
     "independent_source_count",
     "lexical_semantic",
     "load_schema",

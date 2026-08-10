@@ -84,8 +84,57 @@ def _strip_l3(system):
     return s
 
 
+def _duplicate_invariance() -> tuple[dict, dict]:
+    artifact = {
+        "content": "writes use compare-and-swap",
+        "level": 4,
+        "relevance": 1.0,
+        "kind": "code",
+        "supports": [
+            {
+                "aspect": "write",
+                "claim": "writes use compare-and-swap",
+                "scope": "writer-v1",
+            }
+        ],
+    }
+    goal = {
+        "name": "duplicate-invariance",
+        "aspects": ["write"],
+        "theta_coverage": 2.0,
+        "rho_risk": 0.0,
+    }
+    single = analyze_system(
+        {"name": "single", "artifacts": [{"id": "source.py", **artifact}]},
+        goal,
+        Budget(tokens_remaining=20_000, tool_remaining=200),
+    )
+    duplicated = analyze_system(
+        {
+            "name": "duplicated",
+            "artifacts": [{"id": f"alias-{index}.py", **artifact} for index in range(100)],
+        },
+        goal,
+        Budget(tokens_remaining=200_000, tool_remaining=2_000),
+    )
+    keys = (
+        "coverage",
+        "evidential_coverage",
+        "retrieval_coverage",
+        "structural_coverage",
+        "coverage_capability",
+        "complete",
+    )
+    left = {key: single[key] for key in keys}
+    right = {key: duplicated[key] for key in keys}
+    if left != right:
+        raise AssertionError("duplicate evidence changed epistemic metrics")
+    return left, right
+
+
 def run(dense: bool = False) -> str:
     rows = []
+    duplicate_single, duplicate_many = _duplicate_invariance()
     for name, fix in fixtures.FIXTURES.items():
         gold = _gold_for_goal(fix["goal"], fix["gold"])
         gold_by_aspect = fix["gold"]
@@ -156,6 +205,14 @@ def run(dense: bool = False) -> str:
         brier_s = f"{brier:.3f}" if isinstance(brier, float) else "-"
         lines.append(f"| {name} | {method} | {p} | {r} | {cost} | {cov_s} | {comp_s} | {brier_s} |")
     lines += [
+        "",
+        "## Invariante adjudicado de duplicación",
+        "",
+        "La misma raíz y el mismo claim, observados una vez y mediante 100 alias,",
+        "producen métricas bit-idénticas:",
+        "",
+        f"- una observación: `{duplicate_single}`;",
+        f"- 100 alias: `{duplicate_many}`.",
         "",
         "## Lectura",
         "- **argos(embed)** debe igualar o superar a los baselines en recall al",

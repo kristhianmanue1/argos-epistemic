@@ -653,19 +653,26 @@ Cada aspecto tiene un peso:
 $$
 w_i,\qquad\sum_iw_i=1
 $$
-La cobertura se define como:
+Para cada claim positivo normalizado $c$, sus observaciones se agrupan en
+componentes independientes $g$. Repetir una observación dentro del componente
+no añade masa: se conserva la confianza máxima del componente. Con el parámetro
+de corroboración $\kappa>0$:
 $$
-Cov(E,B,G)=
-\sum_{i=1}^{m}
-w_i
-\cdot
-Coverage(t_i)
-\cdot
-Confidence(t_i)
+S(c)=\min\left(1,
+\frac{\sum_{g\in Groups(c)}\max_{p\in g}Conf(p)}{\kappa}
+\right)
+$$
+Claims distintos del mismo aspecto no se corroboran entre sí:
+$$
+S(t_i)=\max_{c\in Claims(t_i)}S(c)
+$$
+La cobertura probatoria es:
+$$
+Cov^{+}(E,B,G)=\sum_{i=1}^{m}w_i\cdot S(t_i)
 $$
 con:
 $$
-Cov(E,B,G)\in[0,1]
+Cov^{+}(E,B,G)\in[0,1]
 $$
 Una alternativa basada en evidencia es:
 $$
@@ -1090,15 +1097,13 @@ malformada —aspecto no textual, `strength` no finito o fuera de $[0,1]$,
 estructurado y **no** se cuenta como probatoria.
 Una `strength` de exactamente $0$ afirma que la relación **no** se cumple; para
 `supports` y `refutes` es un criterio de admisión que rechaza la entrada.
-Mientras la agregación no se redefina, `strength` opera sólo como criterio de
-admisión y no pondera la cobertura.
-> **Limitación conocida.** La cobertura vigente agrega por volumen de
-> proposiciones y no por claim normalizado, de modo que varias lecturas del
-> mismo claim la elevan; el riesgo residual (§13.1) ya no presenta esa
-> conducta. Esto es una deuda identificada, **no** una propiedad deseada: la
-> conducta objetivo es invariancia ante duplicación del mismo claim y de la
-> misma raíz observada. Mientras persista, la terminación no debe apoyarse en
-> esa inflación, sino en el gate de independencia entre fuentes.
+Durante la serie `0.2.x`, `strength` opera sólo como criterio de admisión y no
+pondera la cobertura. El perfil normativo
+`argos/claim-component-coverage-v1` agrega por claim normalizado y componente
+independiente: duplicar proposiciones, ids, raíces, ejecuciones o derivaciones
+no aumenta el resultado. `coverage` es el alias compatible de
+`evidential_coverage`; `retrieval_coverage` y `structural_coverage` describen
+observabilidad no probatoria y nunca habilitan terminación.
 ---
 # 21. Matriz maestra definitiva
 | Nivel             | Evidencia principal                             | Representación comprimida                 | Verificación                                    | Riesgo de omisión                                     | Retroceso o escalamiento                               |

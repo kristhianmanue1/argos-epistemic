@@ -13,8 +13,25 @@ Analiza una descripción de sistema ya construida.
 - `goal`: mapping con `name`, `aspects` y opciones de terminación;
 - `budget`: `Budget(tokens_remaining, tool_remaining)`.
 
-Devuelve un mapping con evidencia, claims, conflictos, cobertura, riesgo, costo,
-inventory, completion y conclusiones de compatibilidad.
+Devuelve un mapping con evidencia, claims, conflictos, métricas separadas de
+cobertura, capacidad, perfiles observados, riesgo, costo, inventory, completion
+y conclusiones de compatibilidad.
+
+`coverage` continúa siendo un `float` y es el alias exacto de
+`evidential_coverage`. El perfil
+`argos/claim-component-coverage-v1` agrega confianza por componentes
+independientes del mismo claim y toma el máximo entre claims de un aspecto.
+`retrieval_coverage` y `structural_coverage` son métricas binarias ponderadas
+por aspecto; no participan en `thresholds_met`, `should_stop` ni `complete`.
+`aspect_scores` se conserva como alias exacto de
+`evidential_aspect_scores`.
+
+`coverage_capability` vale `unavailable`, `partial` o `probatory`. Un objetivo
+vacío o sin proposiciones probatorias reporta `unavailable` y nunca completa.
+Una refutación válida demuestra capacidad probatoria, pero aporta cero cobertura
+positiva y mantiene los gates negativos. `verification_profiles` publica sólo
+familias, versiones, métodos, aspectos y contadores admitidos; no infiere
+plugins habilitados ni expone contenido del target.
 
 `residual_risk` se agrega sobre claims probatorios distintos, no sobre el número
 de proposiciones: acumular relaciones `mentions` deja el valor sin cambio, y
@@ -74,19 +91,19 @@ cerrado: la acción queda en `retrieval_only` y el motivo aparece en
 - `0.0` significa **relación inexistente**: para `supports` y `refutes` la
   entrada se rechaza y se emite `<relación>:zero_strength_no_effect`;
 - los valores en `(0, 1]` son admisibles;
-- mientras F no redefina la agregación, `strength` es **únicamente un criterio
-  de admisión**. No se aplica como ponderador de `coverage` y no debe
+- durante `0.2.x`, `strength` es **únicamente un criterio de admisión**. No se
+  aplica como ponderador de `coverage` y no debe
   presentarse como tal.
 
-#### Limitación conocida de `coverage` (objetivo de corrección: PR F)
+#### Agregación compatible de `coverage`
 
-`coverage` todavía agrega por **volumen de proposiciones**, no por claim
-normalizado: varias lecturas del mismo claim elevan el valor. `residual_risk`
-ya agrega por claim y no presenta esa conducta. Es una **limitación conocida,
-no una propiedad deseada**; la conducta objetivo es invariancia ante
-duplicación del mismo claim y la misma raíz observada. Hasta entonces,
-`complete` no debe descansar en esa inflación: el gate de independencia es lo
-que impide que los duplicados satisfagan la corroboración.
+`coverage` agrega por claim normalizado y componente independiente. Dentro de
+un componente usa la confianza máxima; dentro de un claim suma componentes y
+divide entre `corroboration`; dentro de un aspecto toma el máximo entre claims.
+La procedencia incompleta colapsa conservadoramente a un componente y nunca
+demuestra corroboración múltiple. El reporte publica `coverage_profile` y
+`coverage_parameters`; el mismo perfil forma parte de la configuración del
+evaluation manifest.
 
 ### Perfiles semánticos y red
 
@@ -423,6 +440,11 @@ del resultado pero **no** crea un segundo testigo dentro de la misma familia.
 no relaja la regla de familia. `goal["target_revision"]` alimenta el gate; sin
 ella, `min_sources > 1` falla cerrado.
 
+`min_sources_per_aspect` acepta exclusivamente enteros positivos y rechaza
+`bool`, floats, strings y valores no positivos. Una configuración inválida usa
+dos sólo para explicar el objetivo de corroboración, pero mantiene completion
+bloqueado con `invalid_min_sources_per_aspect`.
+
 El gate de evidencia primaria distingue una mención periférica de una prueba:
 cuando existe grafo L3, acepta soporte con `impact > 0` o un
 `VerificationResult` validado y convertido por la frontera única. Esto permite
@@ -434,7 +456,7 @@ El target analizado no puede declarar con autoridad `verifier_profile`,
 `execution_id`, `independence_group` ni huellas de raíz: los calcula la
 frontera. `min_sources_per_aspect` se evalúa por claim normalizado sobre grupos
 independientes, de modo que duplicados, alias y ejecuciones repetidas no pueden
-satisfacer la corroboración aunque la cobertura legacy se sature. Ver
+satisfacer la corroboración ni elevar la cobertura probatoria. Ver
 [MODEL.md §12.1](../MODEL.md#121-corroboración-e-independencia-entre-fuentes).
 
 ## Perfiles semánticos

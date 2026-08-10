@@ -26,6 +26,7 @@ sys.path.insert(0, str(ROOT))
 
 from argos_epistemic import (  # noqa: E402
     Budget,
+    COVERAGE_PROFILE,
     analyze_system,
     dense_semantic,
     embedding_semantic,
@@ -188,6 +189,12 @@ def case_manifest(slug: str, profile: str) -> dict:
                 "tokens": str(BUDGET_PROFILE["tokens"]),
                 "tool": str(BUDGET_PROFILE["tool"]),
             },
+            "coverage_profile": {
+                "profile": COVERAGE_PROFILE,
+                "component_confidence": "max",
+                "claim_aggregation": "sum_components",
+                "aspect_aggregation": "max_claim",
+            },
             "goal": {
                 "name": goal["name"],
                 "aspects": list(goal["aspects"]),
@@ -307,7 +314,22 @@ def render_argos(evaluation: dict) -> str:
     cg = system.get("call_graph", {})
     bh = system.get("behavior", {})
     top = ", ".join(f"{n['id'].split('::')[-1]} ({n['impact']})" for n in cg.get("top_impact", [])[:4])
-    raw = json.dumps({k: report[k] for k in ("evidence_count", "proposition_count", "coverage", "residual_risk", "complete")})
+    raw = json.dumps(
+        {
+            key: report[key]
+            for key in (
+                "evidence_count",
+                "proposition_count",
+                "coverage",
+                "evidential_coverage",
+                "retrieval_coverage",
+                "structural_coverage",
+                "coverage_capability",
+                "residual_risk",
+                "complete",
+            )
+        }
+    )
     relation_counts = Counter(item["relation"] for item in report["claims"])
     lines = [
         "# Caso de estudio: argos-epistemic (autoestudio)",
@@ -342,6 +364,10 @@ def render_argos(evaluation: dict) -> str:
         f"relations        : {dict(sorted(relation_counts.items()))}",
         f"conflict_count  : {report['conflict_count']}",
         f"coverage        : {report['coverage']}",
+        f"retrieval       : {report['retrieval_coverage']}",
+        f"structural      : {report['structural_coverage']}",
+        f"capability      : {report['coverage_capability']}",
+        f"coverage_profile: {report['coverage_profile']}",
         f"residual_risk   : {report['residual_risk']}",
         f"complete        : {report['complete']}",
         f"levels_covered  : {sorted(report['levels_covered'])}",
@@ -354,9 +380,9 @@ def render_argos(evaluation: dict) -> str:
         "## Interpretación",
         "",
         "El bucle presupuestado selecciona evidencia por utilidad (valor/costo) y "
-        "detiene al alcanzar `coverage ≥ θ` y `risk ≤ ρ`. La cobertura es por "  # noqa: RUF001
-        "aspecto sobre relaciones `supports`; `mentions` orienta recuperación "
-        "pero aporta cero cobertura. El "
+        "detiene al alcanzar `coverage ≥ θ` y `risk ≤ ρ`. La cobertura probatoria "  # noqa: RUF001
+        "agrega componentes independientes del mismo claim; recuperación y "
+        "estructura se publican aparte y no habilitan completion. El "
         "costo **observado** (contenido real leído) se contabiliza contra el "
         "presupuesto y se compara con el estimado (stat).",
         "",
@@ -377,8 +403,8 @@ def render_argos(evaluation: dict) -> str:
         "el pipeline normal conserva y evalúa los timestamps reales.",
         "",
         f"_Generado desde HEAD del pipeline. Manifest de entradas fijadas: "
-        f"`{evaluation['manifest']['fingerprint']}` (perfil semántico, revisión del "
-        f"target, evaluador, frescura y presupuesto). raw report: `{raw}`_",
+        f"`{evaluation['manifest']['fingerprint']}` (perfiles semántico y de cobertura, "
+        f"revisión del target, evaluador, frescura y presupuesto). raw report: `{raw}`_",
         "",
     ]
     return "\n".join(lines)
@@ -514,6 +540,10 @@ def render_third_party(evaluation: dict) -> str:
         f"evidence_count  : {report['evidence_count']}",
         f"proposition_count: {report['proposition_count']}",
         f"coverage        : {report['coverage']}",
+        f"retrieval       : {report['retrieval_coverage']}",
+        f"structural      : {report['structural_coverage']}",
+        f"capability      : {report['coverage_capability']}",
+        f"coverage_profile: {report['coverage_profile']}",
         f"residual_risk   : {report['residual_risk']}",
         f"complete        : {report['complete']}",
         f"levels_covered  : {sorted(report['levels_covered'])}",
@@ -527,7 +557,8 @@ def render_third_party(evaluation: dict) -> str:
     lines += [
         "",
         f"_Manifest de entradas fijadas: `{evaluation['manifest']['fingerprint']}` "
-        f"(perfil semántico, revisión del target, evaluador, frescura y presupuesto)._",
+        f"(perfiles semántico y de cobertura, revisión del target, evaluador, "
+        f"frescura y presupuesto)._",
         "",
     ]
     return "\n".join(lines)

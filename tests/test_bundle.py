@@ -58,7 +58,7 @@ def test_manifest_is_deterministic_and_has_golden_fingerprint():
     first = manifest_fixture()
     second = manifest_fixture()
     assert first == second
-    assert first["fingerprint"] == "sha256:5e30222273c313f3a449a90c2af48aefc98bf97835778e27d003d54d041d0933"
+    assert first["fingerprint"] == "sha256:93ec8e0080e209f51c9f188ea50868ee320fbbe630a8bfcf246556742627ba56"
     verify_manifest(first)
 
 
@@ -83,6 +83,31 @@ def test_manifest_changes_when_configuration_changes_and_rejects_tampering():
     unsupported["schema"] = "argos/evaluation-manifest-v2"
     with pytest.raises(BundleContractError, match="unsupported manifest schema"):
         verify_manifest(unsupported)
+
+
+def test_manifest_identity_binds_the_coverage_profile():
+    original = manifest_fixture()
+    changed = build_manifest(
+        target=original["target"],
+        evaluator=original["evaluator"],
+        goal=original["goal"],
+        semantic_profile=original["configuration"]["semantic_profile"],
+        discovery_profile=original["configuration"]["discovery_profile"],
+        budget=original["configuration"]["budget"],
+        independence_class=original["independence_class"],
+        coverage_profile={
+            "profile": "argos/claim-component-coverage-v2",
+            "parameters": {"claim_aggregation": "different"},
+        },
+        normalizations=original["configuration"]["normalizations"],
+    )
+
+    assert original["configuration"]["coverage_profile"]["profile"] == (
+        "argos/claim-component-coverage-v1"
+    )
+    assert original["configuration_fingerprint"] != changed["configuration_fingerprint"]
+    assert original["fingerprint"] != changed["fingerprint"]
+    verify_manifest(changed)
 
 
 def test_envelope_is_bound_to_manifest_and_detects_tampering():

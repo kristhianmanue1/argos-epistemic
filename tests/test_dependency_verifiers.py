@@ -726,6 +726,11 @@ def test_end_to_end_liveness_through_analyze_path_reaches_complete_true():
     assert families == {"pep621-dependencies", "pep508-requirements"}
 
     assert report["coverage"] >= 0.95
+    assert report["coverage"] == report["evidential_coverage"]
+    assert report["coverage_capability"] == "probatory"
+    assert {
+        profile["family"] for profile in report["verification_profiles"]["executed"]
+    } == {"pep621-dependencies", "pep508-requirements"}
     assert report["residual_risk"] <= 0.05
     assert report["complete"] is True
 

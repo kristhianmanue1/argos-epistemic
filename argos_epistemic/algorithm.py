@@ -13,6 +13,7 @@ from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from typing import Any
 
+from .bundle import COVERAGE_PROFILE
 from .canonical import CANONICALIZATION_PROFILE, content_id, fingerprinted_document
 from .verifiers import (
     INDEPENDENCE_PROFILE,
@@ -20,6 +21,7 @@ from .verifiers import (
     IndependenceSource,
     VerificationResult,
     independence_report,
+    independent_source_components,
     independent_source_count,
     root_fingerprint,
     validate_verification_result,
@@ -342,12 +344,21 @@ class Action:
 
 def derive_goal_aspects(goal: dict[str, Any]) -> list[dict[str, Any]]:
     aspects: list[dict[str, Any]] = []
-    for raw in goal.get("aspects", []):
-        if isinstance(raw, str):
-            aspects.append({"name": raw, "weight": 1.0 / max(len(goal["aspects"]), 1)})
-        else:
-            aspects.append(raw)
-    total = sum(a["weight"] for a in aspects) or 1.0
+    raw_aspects = goal.get("aspects", [])
+    if not isinstance(raw_aspects, tuple | list):
+        return aspects
+    for raw in raw_aspects:
+        if isinstance(raw, str) and raw.strip():
+            aspects.append({"name": raw, "weight": 1.0})
+            continue
+        if not isinstance(raw, dict):
+            continue
+        name = raw.get("name")
+        weight = _strict_finite(raw.get("weight", 1.0))
+        if not isinstance(name, str) or not name.strip() or weight is None or weight < 0.0:
+            continue
+        aspects.append({"name": name, "weight": weight})
+    total = math.fsum(a["weight"] for a in aspects) or 1.0
     for aspect in aspects:
         aspect["weight"] = aspect["weight"] / total
     return aspects
@@ -522,14 +533,13 @@ def parse_declared_relations(
     Fails closed: every malformed entry is dropped and reported. A dropped entry
     never becomes a proposition, so it can contribute neither coverage nor risk.
 
-    Transitional semantics of ``strength``:
+    Semantics of ``strength`` during ``0.2.x``:
 
     - ``0.0`` means the relation does not hold, so for ``supports``/``refutes``
       it is an admission criterion that rejects the entry outright;
     - values in ``(0, 1]`` are admissible;
-    - until the aggregation is redefined (PR F), ``strength`` is ONLY an
-      admission criterion. It is not applied as a weight on coverage and must
-      not be presented as one.
+    - ``strength`` is only an admission criterion. It is not applied as a
+      weight on coverage and must not be presented as one.
     """
     if not any(relation in artifact for relation in _DECLARABLE_RELATIONS):
         # Fast path: the overwhelming majority of discovered artifacts declare
@@ -686,12 +696,97 @@ def derive_propositions(
                 root_fingerprints=(
                     (root_fingerprint(str(artifact.get("content", ""))),) if artifact else ()
                 ),
+                target_revision=(
+                    goal.get("target_revision", "")
+                    if isinstance(goal.get("target_revision", ""), str)
+                    and goal.get("target_revision", "").strip()
+                    else ""
+                ),
             )
         )
     return props
 
 
 CORROBORATION = 1.8
+VERIFICATION_PROFILE_REPORT = "argos/verification-profile-report-v1"
+
+
+@dataclass(frozen=True)
+class CoverageMetrics:
+    evidential_coverage: float
+    retrieval_coverage: float
+    structural_coverage: float
+    evidential_aspect_scores: dict[str, float]
+    retrieval_aspect_scores: dict[str, float]
+    structural_aspect_scores: dict[str, float]
+    coverage_capability: str
+    coverage_profile: str
+    coverage_parameters: dict[str, Any]
+    verification_profiles: dict[str, Any]
+    independent_component_counts: dict[tuple[str, str], int]
+    diagnostics: tuple[str, ...] = ()
+
+
+def _strict_finite(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    number = float(value)
+    return number if math.isfinite(number) else None
+
+
+def _positive_support(prop: Proposition) -> bool:
+    polarity = _strict_finite(prop.polarity)
+    confidence = _strict_finite(prop.confidence)
+    strength = _strict_finite(prop.strength)
+    return bool(
+        prop.relation == "supports"
+        and polarity is not None
+        and polarity > 0.0
+        and confidence is not None
+        and 0.0 < confidence <= 1.0
+        and strength is not None
+        and strength > 0.0
+    )
+
+
+def _claim_identity(prop: Proposition) -> str | None:
+    claim_text = prop.claim_text if isinstance(prop.claim_text, str) else ""
+    claim = prop.claim if isinstance(prop.claim, str) else ""
+    text = claim_text.strip() or claim.strip()
+    if not text or not isinstance(prop.aspect, str) or not prop.aspect.strip():
+        return None
+    if not isinstance(prop.scope, str):
+        return None
+    if isinstance(prop.claim_id, str) and prop.claim_id.strip():
+        return prop.claim_id.strip()
+    return content_id(
+        "claim",
+        {"aspect": prop.aspect.strip(), "claim_text": text, "scope": prop.scope},
+    )
+
+
+def _source_for_proposition(prop: Proposition, claim_key: str) -> IndependenceSource:
+    result_id = (
+        prop.verification_result_id
+        if isinstance(prop.verification_result_id, str)
+        and prop.verification_result_id.strip()
+        else ""
+    )
+    evidence_id = prop.evidence_id if isinstance(prop.evidence_id, str) else ""
+    verified = bool(result_id)
+    return IndependenceSource(
+        source_id=result_id or evidence_id,
+        source_kind="verification_result" if verified else "legacy_evidence",
+        normalized_claim_id=claim_key,
+        verifier_family=prop.verifier_family,
+        verifier_version=prop.verifier_version,
+        verification_method=prop.verification_method_profile or prop.method,
+        execution_id=prop.execution_id,
+        target_revision=prop.target_revision,
+        root_fingerprints=prop.root_fingerprints,
+        derived_from=prop.derived_from,
+        independence_class=prop.independence_class,
+    )
 
 
 def _claim_record(proposition: Proposition) -> dict[str, Any]:
@@ -715,43 +810,186 @@ def _claim_record(proposition: Proposition) -> dict[str, Any]:
     )
 
 
-def aspect_score(props: list[Proposition], corroboration: float = CORROBORATION) -> float:
-    """Coverage of one aspect (MODEL.md §12), calibrated to reward corroboration.
-
-    ``score = clamp01( Σ_pos polarity·conf / corroboration )``: a single source
-    does NOT saturate the aspect (it scores conf/corroboration, e.g. 0.9/1.8 =
-    0.5); reaching ~0.8 requires 2+ independent supporting propositions. This
-    closes the overconfidence gap exposed by the P2 benchmark, where 1 artifact
-    linking all aspects falsely reported coverage ≈ 0.9.
-    """
-    pos_mass = sum(
-        p.polarity * p.confidence
-        for p in props
-        if p.relation == "supports" and p.polarity > 0
+def aspect_score(
+    props: list[Proposition],
+    corroboration: float = CORROBORATION,
+    required_target_revision: str = "",
+) -> float:
+    if not props or not isinstance(props[0].aspect, str):
+        return 0.0
+    metrics = compute_coverage_metrics(
+        props,
+        [{"name": props[0].aspect, "weight": 1.0}],
+        corroboration,
+        required_target_revision,
     )
-    return max(0.0, min(1.0, pos_mass / max(0.0001, corroboration)))
+    return metrics.evidential_coverage
+
+
+def compute_coverage_metrics(
+    propositions: Iterable[Proposition],
+    aspects: list[dict[str, Any]],
+    corroboration: float = CORROBORATION,
+    required_target_revision: str = "",
+    verification_profiles: dict[str, Any] | None = None,
+) -> CoverageMetrics:
+    """Compute all coverage observables from one claim/component snapshot."""
+    materialized = list(propositions)
+    diagnostics: list[str] = []
+    divisor = _strict_finite(corroboration)
+    if divisor is None or divisor <= 0.0:
+        diagnostics.append("invalid_corroboration")
+        divisor = None
+    weights: dict[str, float] = {}
+    aspect_order: list[str] = []
+    for aspect in aspects:
+        if not isinstance(aspect, dict):
+            diagnostics.append("invalid_aspect")
+            continue
+        name = aspect.get("name")
+        weight = _strict_finite(aspect.get("weight"))
+        if not isinstance(name, str) or not name.strip() or weight is None or weight < 0.0:
+            diagnostics.append("invalid_aspect")
+            continue
+        if name not in weights:
+            aspect_order.append(name)
+            weights[name] = 0.0
+        weights[name] += weight
+    entries = [(name, weights[name]) for name in aspect_order]
+    names = {name for name, _ in entries}
+    evidential = {name: 0.0 for name, _ in entries}
+    retrieval = {name: 0.0 for name, _ in entries}
+    structural = {name: 0.0 for name, _ in entries}
+    probative_aspects: set[str] = set()
+    claims: dict[tuple[str, str], list[Proposition]] = {}
+    retrieval_relations = {
+        "mentions",
+        "tests",
+        "implements",
+        "configures",
+        "supports",
+        "refutes",
+    }
+    structural_relations = {"tests", "implements", "configures"}
+    for prop in materialized:
+        prop_aspect = prop.aspect
+        if prop_aspect not in names:
+            continue
+        claim_key = _claim_identity(prop)
+        if claim_key is None:
+            diagnostics.append("invalid_claim_identity")
+            continue
+        strength = _strict_finite(prop.strength)
+        if strength is not None and strength > 0.0:
+            if prop.relation in retrieval_relations:
+                retrieval[prop_aspect] = 1.0
+            if prop.relation in structural_relations:
+                structural[prop_aspect] = 1.0
+        confidence = _strict_finite(prop.confidence)
+        polarity = _strict_finite(prop.polarity)
+        if (
+            strength is not None
+            and strength > 0.0
+            and confidence is not None
+            and 0.0 < confidence <= 1.0
+            and polarity is not None
+            and (
+                (prop.relation == "supports" and polarity > 0.0)
+                or (prop.relation == "refutes" and polarity < 0.0)
+            )
+        ):
+            probative_aspects.add(prop_aspect)
+        if not _positive_support(prop):
+            continue
+        claims.setdefault((prop_aspect, claim_key), []).append(prop)
+    if divisor is not None:
+        claim_scores: dict[str, list[float]] = {}
+        component_counts: dict[tuple[str, str], int] = {}
+        for (aspect_name, claim_key), claim_props in claims.items():
+            sources = [_source_for_proposition(prop, claim_key) for prop in claim_props]
+            components = independent_source_components(
+                sources, required_target_revision, claim_key
+            )
+            component_counts[(aspect_name, claim_key)] = len(components)
+            confidence_by_source: dict[str, float] = {}
+            for prop, source in zip(claim_props, sources, strict=True):
+                confidence = _strict_finite(prop.confidence)
+                if confidence is not None:
+                    confidence_by_source[source.source_id] = max(
+                        confidence_by_source.get(source.source_id, 0.0), confidence
+                    )
+            component_mass = [
+                max((confidence_by_source.get(source_id, 0.0) for source_id in members), default=0.0)
+                for members in components
+            ]
+            score = max(0.0, min(1.0, math.fsum(component_mass) / divisor))
+            claim_scores.setdefault(aspect_name, []).append(score)
+        for name, scores in claim_scores.items():
+            evidential[name] = max(scores, default=0.0)
+    else:
+        component_counts = {}
+    weighted_evidential = math.fsum(weight * evidential[name] for name, weight in entries)
+    weighted_retrieval = math.fsum(weight * retrieval[name] for name, weight in entries)
+    weighted_structural = math.fsum(weight * structural[name] for name, weight in entries)
+    if not entries or not probative_aspects:
+        capability = "unavailable"
+    elif probative_aspects >= names:
+        capability = "probatory"
+    else:
+        capability = "partial"
+    profiles = verification_profiles or {
+        "profile": VERIFICATION_PROFILE_REPORT,
+        "enabled": [],
+        "enabled_state": "unavailable",
+        "executed": [],
+    }
+    return CoverageMetrics(
+        evidential_coverage=max(0.0, min(1.0, weighted_evidential)),
+        retrieval_coverage=max(0.0, min(1.0, weighted_retrieval)),
+        structural_coverage=max(0.0, min(1.0, weighted_structural)),
+        evidential_aspect_scores=evidential,
+        retrieval_aspect_scores=retrieval,
+        structural_aspect_scores=structural,
+        coverage_capability=capability,
+        coverage_profile=COVERAGE_PROFILE,
+        coverage_parameters={
+            "corroboration": divisor,
+            "component_confidence": "max",
+            "claim_aggregation": "sum_components",
+            "aspect_aggregation": "max_claim",
+        },
+        verification_profiles=profiles,
+        independent_component_counts=component_counts,
+        diagnostics=tuple(sorted(set(diagnostics))),
+    )
+
+
+def _metrics_sources_met(
+    metrics: CoverageMetrics,
+    aspects: list[dict[str, Any]],
+    min_sources: int,
+) -> bool:
+    if not aspects or min_sources <= 0:
+        return True
+    return all(
+        any(
+            aspect_name == aspect["name"] and count >= min_sources
+            for (aspect_name, _), count in metrics.independent_component_counts.items()
+        )
+        for aspect in aspects
+    )
 
 
 def compute_coverage(
     propositions: Iterable[Proposition],
     aspects: list[dict[str, Any]],
     corroboration: float = CORROBORATION,
+    required_target_revision: str = "",
 ) -> float:
-    """Per-aspect coverage (MODEL.md §12): Cov = Σ w_i · aspect_score(t_i).
-
-    aspect_score rewards corroboration (see ``aspect_score``); aspects with no
-    supporting proposition score 0 (evidence irrelevant to the goal contributes
-    nothing).
-    """
-    if not aspects:
-        return 0.0
-    by_aspect: dict[str, list[Proposition]] = {}
-    for prop in propositions:
-        by_aspect.setdefault(prop.aspect, []).append(prop)
-    total = 0.0
-    for aspect in aspects:
-        total += aspect["weight"] * aspect_score(by_aspect.get(aspect["name"], []), corroboration)
-    return max(0.0, min(1.0, total))
+    """Compatible numeric alias for claim/component evidential coverage."""
+    return compute_coverage_metrics(
+        propositions, aspects, corroboration, required_target_revision
+    ).evidential_coverage
 
 
 def compute_residual_risk(
@@ -840,8 +1078,8 @@ def min_sources_met(
 ) -> bool:
     """Every required aspect has a claim backed by >= min_sources INDEPENDENT sources.
 
-    Structural anti-overconfidence, and the gate that keeps ``complete`` honest
-    while legacy coverage still aggregates by proposition volume (see PR F).
+    Structural anti-overconfidence sharing the claim/component semantics used
+    by evidential coverage.
     Counting distinct ``evidence_id`` was not enough: two ids pointing at
     identical content, two profiles reading one file, or two runs of one
     verifier are one source, not several. Sources are therefore grouped into
@@ -927,25 +1165,13 @@ def claim_independence_sources(
     """
     by_claim: dict[tuple[str, str], list[IndependenceSource]] = {}
     for prop in propositions:
-        if prop.relation != "supports" or prop.polarity <= 0:
+        if not _positive_support(prop):
             continue
-        key = (prop.aspect, prop.claim_id or prop.claim_text or prop.claim)
-        verified = bool(prop.verification_result_id)
-        by_claim.setdefault(key, []).append(
-            IndependenceSource(
-                source_id=prop.verification_result_id or prop.evidence_id,
-                source_kind="verification_result" if verified else "legacy_evidence",
-                normalized_claim_id=prop.claim_id,
-                verifier_family=prop.verifier_family,
-                verifier_version=prop.verifier_version,
-                verification_method=prop.verification_method_profile or prop.method,
-                execution_id=prop.execution_id,
-                target_revision=prop.target_revision,
-                root_fingerprints=prop.root_fingerprints,
-                derived_from=prop.derived_from,
-                independence_class=prop.independence_class,
-            )
-        )
+        claim_key = _claim_identity(prop)
+        if claim_key is None or not isinstance(prop.aspect, str):
+            continue
+        key = (prop.aspect, claim_key)
+        by_claim.setdefault(key, []).append(_source_for_proposition(prop, claim_key))
     return by_claim
 
 
@@ -1000,6 +1226,7 @@ def should_stop(
     budget: Budget,
     breadth_ok: bool = True,
     prod_ok: bool = True,
+    coverage_capability: str = "probatory",
 ) -> bool:
     theta = goal.get("theta_coverage", budget.theta_coverage)
     rho = goal.get("rho_risk", budget.rho_risk)
@@ -1009,6 +1236,7 @@ def should_stop(
         and not conflicts.critical()
         and breadth_ok
         and prod_ok
+        and coverage_capability == "probatory"
     )
 
 
@@ -1164,7 +1392,10 @@ def _simulate_support(
         return 0.0, 0.0
     corroboration = goal.get("corroboration", CORROBORATION)
     current = list(propositions)
-    before_coverage = compute_coverage(current, aspects, corroboration)
+    target_revision = _goal_target_revision(goal)
+    before_coverage = compute_coverage(
+        current, aspects, corroboration, target_revision
+    )
     before_risk = compute_residual_risk(current, aspects, goal)
     simulated = current + [
         Proposition(
@@ -1177,10 +1408,13 @@ def _simulate_support(
             scope=name,
             relation="supports",
             claim_id=f"__simulated__:{name}",
+            target_revision=target_revision,
         )
         for name in targets
     ]
-    after_coverage = compute_coverage(simulated, aspects, corroboration)
+    after_coverage = compute_coverage(
+        simulated, aspects, corroboration, target_revision
+    )
     after_risk = compute_residual_risk(simulated, aspects, goal)
     return (
         max(0.0, after_coverage - before_coverage),
@@ -1189,11 +1423,7 @@ def _simulate_support(
 
 
 def _finite(value: Any) -> float | None:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return number if math.isfinite(number) else None
+    return _strict_finite(value)
 
 
 def declared_relations_for(
@@ -1627,8 +1857,21 @@ def q_g_invariant(evidence: EvidenceStore, beliefs: BeliefStore) -> bool:
 
 
 _PROBATORY_REASON_CODES = frozenset(
-    {"threshold_not_met", "insufficient_sources", "missing_production_evidence"}
+    {
+        "threshold_not_met",
+        "insufficient_sources",
+        "missing_production_evidence",
+        "coverage_capability_unavailable",
+        "coverage_capability_partial",
+    }
 )
+
+
+def _required_min_sources(goal: dict[str, Any]) -> tuple[int, bool]:
+    value = goal.get("min_sources_per_aspect", 2)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        return 2, False
+    return value, True
 
 _NEXT_ACTION_SPECS: dict[str, dict[str, Any]] = {
     "increase_artifact_cap": {
@@ -1714,7 +1957,7 @@ def _verifier_targets(
     ``min_sources`` is unmet.
     """
     names = [a["name"] for a in aspects]
-    min_sources = int(goal.get("min_sources_per_aspect", 2))
+    min_sources, _ = _required_min_sources(goal)
     by_aspect: dict[str, set[str]] = {}
     production: dict[str, set[str]] = {}
     for prop in propositions:
@@ -1780,7 +2023,7 @@ def synthesize_report(
     propositions: PropositionStore,
     conflicts: ConflictStore,
     aspects: list[dict[str, Any]],
-    coverage: float,
+    metrics: CoverageMetrics,
     residual_risk: float,
     budget: Budget,
     cost: dict[str, Any] | None = None,
@@ -1789,31 +2032,36 @@ def synthesize_report(
     verification_admission: dict[str, Any] | None = None,
     dependency_verification: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    by_aspect: dict[str, list[Proposition]] = {}
-    for prop in propositions:
-        by_aspect.setdefault(prop.aspect, []).append(prop)
-    corroboration = goal.get("corroboration", CORROBORATION)
+    admission_report = dict(verification_admission or {})
+    admission_report.pop("verification_profiles", None)
+    if not admission_report:
+        admission_report = {
+            "verification_candidates_offered": 0,
+            "verification_results_valid": 0,
+            "verification_propositions_admitted": 0,
+            "verification_candidates_rejected": 0,
+            "verification_rejection_reasons": [],
+        }
     aspect_scores = {
-        a["name"]: round(aspect_score(by_aspect.get(a["name"], []), corroboration), 4)
-        for a in aspects
+        name: round(score, 4)
+        for name, score in metrics.evidential_aspect_scores.items()
     }
     thresholds_met = (
-        coverage >= goal.get("theta_coverage", budget.theta_coverage)
+        metrics.evidential_coverage >= goal.get("theta_coverage", budget.theta_coverage)
         and residual_risk <= goal.get("rho_risk", budget.rho_risk)
     )
     no_negative = not any(p.relation == "refutes" for p in propositions)
     no_critical_conflicts = not conflicts.critical()
     evaluated_revision = _goal_target_revision(goal)
-    sources_met = min_sources_met(
-        propositions,
-        aspects,
-        int(goal.get("min_sources_per_aspect", 2)),
-        evaluated_revision,
+    min_sources, min_sources_valid = _required_min_sources(goal)
+    sources_met = min_sources_valid and _metrics_sources_met(
+        metrics, aspects, min_sources
     )
     production_met = (
         not (goal.get("require_production_evidence", True) and system_has_production(system))
         or production_sources_met(propositions, aspects)
     )
+    capability_met = metrics.coverage_capability == "probatory"
     inventory = system.get("inventory") or {}
     degradations = list(inventory.get("degradations", []))
     accepted_degradations = set(goal.get("accepted_degradations", []))
@@ -1829,6 +2077,7 @@ def synthesize_report(
         and no_critical_conflicts
         and sources_met
         and production_met
+        and capability_met
         and not blocking_degradations
     )
     reason_codes: list[str] = []
@@ -1840,8 +2089,14 @@ def synthesize_report(
         reason_codes.append("blocking_conflict")
     if not sources_met:
         reason_codes.append("insufficient_sources")
+    if not min_sources_valid:
+        reason_codes.append("invalid_min_sources_per_aspect")
     if not production_met:
         reason_codes.append("missing_production_evidence")
+    if metrics.coverage_capability == "unavailable":
+        reason_codes.append("coverage_capability_unavailable")
+    elif metrics.coverage_capability == "partial":
+        reason_codes.append("coverage_capability_partial")
     reason_codes.extend(blocking_degradations)
     if termination_reason not in {"thresholds_met", "unknown"}:
         reason_codes.append(termination_reason)
@@ -1905,13 +2160,7 @@ def synthesize_report(
         "goal": goal.get("name"),
         "evidence_count": len(evidence),
         "belief_count": len(beliefs),
-        "verification_admission": verification_admission or {
-            "verification_candidates_offered": 0,
-            "verification_results_valid": 0,
-            "verification_propositions_admitted": 0,
-            "verification_candidates_rejected": 0,
-            "verification_rejection_reasons": [],
-        },
+        "verification_admission": admission_report,
         "proposition_count": len(propositions),
         "conflict_count": len(conflicts),
         "compressed_count": sum(1 for e in evidence if e.compressed),
@@ -1929,13 +2178,30 @@ def synthesize_report(
             }
             for c in conflicts
         ],
-        "coverage": round(coverage, 4),
+        "coverage": round(metrics.evidential_coverage, 4),
+        "evidential_coverage": round(metrics.evidential_coverage, 4),
+        "retrieval_coverage": round(metrics.retrieval_coverage, 4),
+        "structural_coverage": round(metrics.structural_coverage, 4),
+        "coverage_capability": metrics.coverage_capability,
+        "coverage_profile": metrics.coverage_profile,
+        "coverage_parameters": metrics.coverage_parameters,
+        "verification_profiles": metrics.verification_profiles,
+        "coverage_diagnostics": list(metrics.diagnostics),
         "residual_risk": round(residual_risk, 4),
         "aspect_scores": aspect_scores,
+        "evidential_aspect_scores": aspect_scores,
+        "retrieval_aspect_scores": {
+            name: round(score, 4)
+            for name, score in metrics.retrieval_aspect_scores.items()
+        },
+        "structural_aspect_scores": {
+            name: round(score, 4)
+            for name, score in metrics.structural_aspect_scores.items()
+        },
         "declaration_diagnostics": list(declaration_diagnostics or []),
         "source_independence": {
             "profile": INDEPENDENCE_PROFILE,
-            "required_sources": int(goal.get("min_sources_per_aspect", 2)),
+            "required_sources": min_sources,
             "evaluated_target_revision": evaluated_revision,
             "claims": [
                 {
@@ -1943,7 +2209,7 @@ def synthesize_report(
                     "normalized_claim_id": claim_key,
                     **independence_report(
                         sources,
-                        int(goal.get("min_sources_per_aspect", 2)),
+                        min_sources,
                         evaluated_revision,
                         claim_key,
                     ),
@@ -2035,6 +2301,7 @@ def _admit_verification_results(
     rejected = 0
     reasons: set[str] = set()
     seen_result_ids: set[str] = set()
+    observed_profiles: dict[str, dict[str, Any]] = {}
     try:
         iterator = iter(verification_results)
     except TypeError:
@@ -2059,6 +2326,22 @@ def _admit_verification_results(
             rejected += 1
             reasons.add(_REJECTION_REVISION_MISMATCH)
             continue
+        profile = observed_profiles.setdefault(
+            candidate.verifier_family,
+            {
+                "family": candidate.verifier_family,
+                "versions": set(),
+                "methods": set(),
+                "aspects": set(),
+                "result_count": 0,
+                "probative_result_count": 0,
+            },
+        )
+        profile["versions"].add(candidate.verifier_version)
+        profile["methods"].add(candidate.verification_method)
+        profile["aspects"].add(candidate.aspect)
+        profile["result_count"] += 1
+        profile["probative_result_count"] += int(candidate.is_probative)
         prop = proposition_from_verification(candidate, "")
         if prop is None:
             rejected += 1
@@ -2066,12 +2349,29 @@ def _admit_verification_results(
             continue
         propositions.add(prop)
         admitted += 1
+    executed = [
+        {
+            "family": profile["family"],
+            "versions": sorted(profile["versions"]),
+            "methods": sorted(profile["methods"]),
+            "aspects": sorted(profile["aspects"]),
+            "result_count": profile["result_count"],
+            "probative_result_count": profile["probative_result_count"],
+        }
+        for _, profile in sorted(observed_profiles.items())
+    ]
     return {
         "verification_candidates_offered": offered,
         "verification_results_valid": valid,
         "verification_propositions_admitted": admitted,
         "verification_candidates_rejected": rejected,
         "verification_rejection_reasons": sorted(reasons),
+        "verification_profiles": {
+            "profile": VERIFICATION_PROFILE_REPORT,
+            "enabled": [],
+            "enabled_state": "unavailable",
+            "executed": executed,
+        },
     }
 
 
@@ -2211,9 +2511,16 @@ def analyze_system(
     )
     enabled_nf = select_non_functional_extractors(goal)
     linker = goal.get("aspect_linker") or _default_linker
-    min_sources = int(goal.get("min_sources_per_aspect", 2))
+    min_sources, min_sources_valid = _required_min_sources(goal)
     require_production = goal.get("require_production_evidence", True) and system_has_production(system)
-    coverage = 0.0
+    verification_profiles = verification_admission["verification_profiles"]
+    metrics = compute_coverage_metrics(
+        propositions,
+        required_aspects,
+        goal.get("corroboration", CORROBORATION),
+        evaluated_revision,
+        verification_profiles,
+    )
     residual_risk = 1.0
     cost_estimated = dependency_tokens
     cost_observed = dependency_tokens
@@ -2221,13 +2528,28 @@ def analyze_system(
     ev_conf: dict[str, float] = {}
     declaration_diagnostics: list[dict[str, Any]] = []
     while True:
-        coverage = compute_coverage(propositions, required_aspects, goal.get("corroboration", CORROBORATION))
+        metrics = compute_coverage_metrics(
+            propositions,
+            required_aspects,
+            goal.get("corroboration", CORROBORATION),
+            evaluated_revision,
+            verification_profiles,
+        )
         residual_risk = compute_residual_risk(propositions, required_aspects, goal)
-        breadth_ok = min_sources_met(
-            propositions, required_aspects, min_sources, evaluated_revision
+        breadth_ok = min_sources_valid and _metrics_sources_met(
+            metrics, required_aspects, min_sources
         )
         prod_ok = (not require_production) or production_sources_met(propositions, required_aspects)
-        if should_stop(coverage, residual_risk, conflicts, goal, budget, breadth_ok, prod_ok):
+        if should_stop(
+            metrics.evidential_coverage,
+            residual_risk,
+            conflicts,
+            goal,
+            budget,
+            breadth_ok,
+            prod_ok,
+            metrics.coverage_capability,
+        ):
             termination_reason = "thresholds_met"
             break
         if not budget.has_capacity():
@@ -2293,7 +2615,13 @@ def analyze_system(
             protected_ids.update(conflict.evidence_for)
             protected_ids.update(conflict.evidence_against)
         evidence.compress(budget, preserve_provenance=True, preserve_invariants=protected_ids)
-    coverage = compute_coverage(propositions, required_aspects, goal.get("corroboration", CORROBORATION))
+    metrics = compute_coverage_metrics(
+        propositions,
+        required_aspects,
+        goal.get("corroboration", CORROBORATION),
+        evaluated_revision,
+        verification_profiles,
+    )
     residual_risk = compute_residual_risk(propositions, required_aspects, goal)
     phases: dict[str, Any] = {
         "discovery": {
@@ -2318,7 +2646,7 @@ def analyze_system(
         }
     return synthesize_report(
         system, goal, evidence, beliefs, propositions, conflicts, required_aspects,
-        coverage,
+        metrics,
         residual_risk,
         budget,
         {

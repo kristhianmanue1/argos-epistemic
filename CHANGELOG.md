@@ -19,6 +19,11 @@ mantienen además su propia versión en el nombre del contrato.
 - similitud semántica produce `mentions`, no soporte;
 - conflictos requieren el mismo claim y alcance con `supports` y `refutes`;
 - la cobertura sólo cuenta relaciones probatorias positivas.
+- `coverage` agrega por claim y componente independiente y permanece como alias
+  de `evidential_coverage` durante `0.2.x`;
+- el reporte separa recuperación, estructura, capacidad probatoria y perfiles
+  de verificación observados;
+- el manifest liga el perfil y los parámetros de cobertura a su fingerprint.
 
 ## 0.1.0 — 2026-08-03
 

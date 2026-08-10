@@ -154,8 +154,15 @@ describirla como si lo fuera:
 | Métrica | Agregación vigente |
 |---|---|
 | `residual_risk` | por claim normalizado; repetir una lectura no cambia el valor |
-| `coverage` | **legacy: por volumen de proposiciones**; varias lecturas del mismo claim la elevan. Limitación conocida, no propiedad deseada; corrección asignada a PR F |
-| `min_sources` / independencia | por claim y grupo independiente; protección **transitoria** de `complete` mientras `coverage` siga siendo legacy |
+| `coverage` / `evidential_coverage` | alias exactos; máximo entre claims y suma de confianza máxima por componente independiente dentro del mismo claim |
+| `retrieval_coverage` | presencia ponderada de relaciones recuperadas por aspecto; nunca habilita `complete` |
+| `structural_coverage` | presencia ponderada de `tests`, `implements` o `configures`; nunca habilita `complete` |
+| `min_sources` / independencia | por claim y componente independiente; comparte la misma vista conservadora que cobertura |
+
+`CoverageMetrics` es la instantánea normativa que alimenta utilidad, parada y
+reporte. `coverage_capability` falla cerrada cuando no existe observación
+probatoria y `verification_profiles` enumera únicamente perfiles efectivamente
+ejecutados y admitidos en revisión y scope.
 
 Las relaciones no probatorias (`mentions`, `tests`, `implements`, `configures`)
 quedan fuera de los numeradores y denominadores probatorios, de modo que la
