@@ -47,6 +47,7 @@ candidate actions -> evidence -> verification
 
 | Componente | Responsabilidad | No garantiza |
 |---|---|---|
+| `__main__.py` | ayuda y versión instaladas, sin iniciar análisis | una CLI analítica estable |
 | `extractors.py` | discovery, relevancia y perfiles semánticos | comprensión semántica fiel |
 | `callgraph.py` | grafo L3 y centralidad aproximada | resolución dinámica completa |
 | `behavior.py` | señales L4 obtenidas por AST | equivalencia conductual |

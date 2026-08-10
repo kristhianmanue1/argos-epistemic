@@ -8,8 +8,12 @@ formal de soporte.
 
 ## Reportar una vulnerabilidad
 
-No abras un issue público. Usa la función **Report a vulnerability** de GitHub
-Security Advisories en este repositorio. Incluye:
+No publiques detalles de una vulnerabilidad en un issue. Mientras el repositorio
+sea privado, GitHub no expone Private Vulnerability Reporting para reporteros
+externos. Un colaborador autorizado debe crear únicamente una
+[pregunta sin detalles sensibles](https://github.com/kristhianmanue1/argos-epistemic/issues/new?template=question.yml)
+solicitando ser invitado a un draft Security Advisory. El mantenedor abre el
+advisory e invita allí al reportero antes de intercambiar:
 
 - versión o commit afectado;
 - impacto y escenario de amenaza;
@@ -17,8 +21,13 @@ Security Advisories en este repositorio. Incluye:
 - si requiere `run_dynamic`, red o un repositorio malicioso;
 - mitigación conocida, si existe.
 
-No incluyas secretos reales ni datos de terceros. Si Security Advisories no está
-disponible, solicita al mantenedor un canal privado sin revelar detalles.
+No incluyas secretos reales ni datos de terceros. El issue inicial sólo debe
+decir que existe un posible reporte de seguridad y el nombre de usuario que debe
+ser invitado; no debe revelar el hallazgo, el target ni datos sensibles.
+
+Si el repositorio se hace público, se debe habilitar Private Vulnerability
+Reporting y actualizar esta política y el selector de issues en el mismo cambio,
+antes de solicitar reportes externos.
 
 ## Alcance especialmente sensible
 

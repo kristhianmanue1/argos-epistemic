@@ -7,6 +7,26 @@ mantienen además su propia versión en el nombre del contrato.
 
 Sin cambios todavía.
 
+## 0.2.0rc2 — 2026-08-10
+
+### Added
+
+- ayuda informativa y sin efectos laterales mediante
+  `python -m argos_epistemic --help` y `--version`;
+- rutas accionables para bugs, mejoras, preguntas y coordinación segura de
+  vulnerabilidades en el repositorio privado;
+- diagnóstico de entorno e instalación en el formulario de bugs.
+
+### Changed
+
+- la instalación desde GitHub Release descarga y verifica el wheel antes de
+  instalarlo;
+- soporte y contribución enlazan directamente los formularios disponibles;
+- la metadata de madurez pasa de Alpha a Beta para reflejar la candidata de
+  release, sin prometer compatibilidad `1.x`;
+- la ayuda informativa no analiza repositorios ni anticipa la CLI estable del
+  Incremento 4.
+
 ## 0.2.0rc1 — 2026-08-10
 
 ### Added

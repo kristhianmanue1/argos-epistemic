@@ -7,7 +7,7 @@ conclusiones auditables.
 El consumidor principal es otro agente. La salida canónica es estructurada y
 verificable; Markdown es una vista secundaria para inspección humana.
 
-> Estado: release candidate (`0.2.0rc1`). Los contratos versionados son
+> Estado: release candidate (`0.2.0rc2`). Los contratos versionados son
 > utilizables, pero la API Python aún puede cambiar antes de `1.0`.
 
 ## Qué ofrece hoy
@@ -26,17 +26,23 @@ facturación, firma de attestations ni compatibilidad `1.x`.
 
 ## Instalación de la release candidate
 
-Requiere Python 3.12. Mientras el paquete no esté publicado en PyPI, instala el
-wheel verificado mediante SHA-256 desde la GitHub Release `v0.2.0rc1`:
+Requiere Python 3.12. Mientras el repositorio sea privado y el paquete no esté
+publicado en PyPI, un colaborador autorizado debe descargar y verificar el wheel
+de la GitHub Release `v0.2.0rc2` mediante GitHub CLI:
 
 ```bash
 python3.12 -m venv .venv
-.venv/bin/python -m pip install \
-  https://github.com/kristhianmanue1/argos-epistemic/releases/download/v0.2.0rc1/argos_epistemic-0.2.0rc1-py3-none-any.whl
+gh auth status
+gh release download v0.2.0rc2 --repo kristhianmanue1/argos-epistemic \
+  --pattern 'argos_epistemic-0.2.0rc2-py3-none-any.whl' --pattern SHA256SUMS
+grep 'argos_epistemic-0.2.0rc2-py3-none-any.whl' SHA256SUMS | shasum -a 256 -c -
+.venv/bin/python -m pip install ./argos_epistemic-0.2.0rc2-py3-none-any.whl
 ```
 
-Verifica antes el SHA-256 publicado junto al artefacto. Esta prerelease no se
-promoverá a `0.2.0` hasta recibir validación de consumidores.
+El comando de verificación debe terminar en `OK`. Esta prerelease no se
+promoverá a `0.2.0` hasta recibir validación de consumidores. Usuarios externos
+no pueden descargarla mientras el repositorio siga privado; hacerla pública o
+distribuirla mediante PyPI requiere una decisión separada.
 
 ## Instalación para desarrollo
 
@@ -81,6 +87,18 @@ report = analyze_system(system, goal, Budget(tokens_remaining=10_000, tool_remai
 print(report["claims"])
 ```
 
+Para descubrir la versión instalada y las entradas públicas sin iniciar un
+análisis:
+
+```bash
+python -m argos_epistemic --help
+python -m argos_epistemic --version
+```
+
+Esta interfaz es informativa: no lee repositorios, no ejecuta código y no
+anticipa la CLI analítica del Incremento 4. El análisis se realiza hoy mediante
+`analyze_path()` o `analyze_system()` desde Python.
+
 `mentions`, `tests`, `implements` y `configures` orientan recuperación, pero no
 elevan cobertura. Sólo `supports` aporta evidencia positiva y `refutes`
 evidencia negativa. Una acción sugerida por el reporte nunca constituye
@@ -117,6 +135,19 @@ del mismo claim; duplicar una lectura, raíz o ejecución no aumenta el valor.
 
 Los casos de estudio reproducibles están en `examples/`; los benchmarks y sus
 limitaciones están en `bench/`.
+
+## Ayuda y reportes
+
+- [Reportar un bug reproducible](https://github.com/kristhianmanue1/argos-epistemic/issues/new?template=bug.yml).
+- [Proponer una mejora](https://github.com/kristhianmanue1/argos-epistemic/issues/new?template=feature.yml).
+- [Hacer una pregunta](https://github.com/kristhianmanue1/argos-epistemic/issues/new?template=question.yml).
+- [Seguir el procedimiento de seguridad vigente](SECURITY.md).
+- Consultar [soporte](SUPPORT.md), [contribución](CONTRIBUTING.md) y
+  [problemas abiertos](https://github.com/kristhianmanue1/argos-epistemic/issues).
+
+No publiques secretos, repositorios privados ni datos personales. Las acciones
+sugeridas por Argos tampoco conceden autorización para adjuntar el contenido de
+un target a un issue.
 
 ## Garantías y límites
 

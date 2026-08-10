@@ -23,6 +23,31 @@ body:
       label: Versión o commit
     validations:
       required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Python y sistema operativo
+      description: Por ejemplo, Python 3.12.5 en Ubuntu 24.04 o macOS 15.
+      placeholder: Python 3.12.x · sistema y versión
+    validations:
+      required: true
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Método de instalación
+      options:
+        - Wheel de GitHub Release
+        - Source distribution de GitHub Release
+        - Checkout editable
+        - Otro
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnóstico saneado
+      description: Incluye reason_codes, degradaciones o salida mínima útil. No incluyas secretos, rutas privadas ni contenido confidencial del target.
+      render: shell
   - type: dropdown
     id: area
     attributes:
@@ -33,6 +58,8 @@ body:
         - Discovery o presupuesto
         - Extractores
         - Documentación
+        - Instalación o empaquetado
+        - Ayuda informativa
         - Otro
     validations:
       required: true

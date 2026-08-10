@@ -1,0 +1,42 @@
+name: Pregunta de uso
+description: Solicita ayuda sobre instalación, API o interpretación de reportes
+title: "[Pregunta]: "
+labels: ["question", "triage"]
+body:
+  - type: dropdown
+    id: topic
+    attributes:
+      label: Tema
+      options:
+        - Instalación o versión
+        - API Python
+        - Interpretación de un reporte
+        - Integración con un agente
+        - Documentación
+        - Otro
+    validations:
+      required: true
+  - type: textarea
+    id: question
+    attributes:
+      label: Pregunta
+      description: Explica qué intentas conseguir y en qué punto necesitas ayuda. No incluyas secretos, código privado ni datos personales.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Versión o commit
+      description: Si aplica, indica la versión instalada o el commit analizado.
+  - type: textarea
+    id: attempted
+    attributes:
+      label: Qué intentaste
+      description: Incluye un ejemplo mínimo o salida saneada cuando ayude a responder.
+  - type: checkboxes
+    id: security
+    attributes:
+      label: Seguridad
+      options:
+        - label: Confirmo que no publicaré secretos ni detalles de una vulnerabilidad; esos reportes siguen SECURITY.md.
+          required: true

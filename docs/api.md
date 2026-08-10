@@ -3,6 +3,17 @@
 La API está en desarrollo y puede cambiar antes de `1.0`. Los schemas
 versionados tienen reglas de compatibilidad más estrictas que las firmas Python.
 
+## Descubrimiento desde el módulo
+
+`python -m argos_epistemic --help` muestra el propósito, las dos entradas
+Python y la documentación; `--version` obtiene la versión desde la metadata de
+la distribución instalada. Sin argumentos se muestra la misma ayuda.
+
+Esta entrada no es la CLI analítica del Incremento 4: no acepta targets, no lee
+repositorios, no ejecuta verificadores ni crea bundles. Un argumento desconocido
+falla con código `2` y no se interpreta como ruta o acción. El análisis continúa
+expuesto únicamente mediante las funciones Python documentadas abajo.
+
 ## Análisis
 
 ### `analyze_system(system, goal, budget)`

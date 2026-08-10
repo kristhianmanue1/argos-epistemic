@@ -13,8 +13,8 @@ verdad completa ni sustituye los límites documentados del modelo.
 - documentar migración y compatibilidad;
 - no incluir archivos locales, memoria AN-KLA, secretos ni resultados privados.
 
-Para una prerelease PEP 440, `0.2.0rc1` corresponde al tag SemVer
-`v0.2.0rc1`. `coverage` seguirá siendo alias de `evidential_coverage` durante
+Para una prerelease PEP 440, `0.2.0rc2` corresponde al tag SemVer
+`v0.2.0rc2`. `coverage` seguirá siendo alias de `evidential_coverage` durante
 la serie `0.2.x`.
 
 ## 2. Ejecutar los gates
@@ -42,12 +42,12 @@ el timestamp Unix de ese commit (`git show -s --format=%ct HEAD`):
 SOURCE_DATE_EPOCH=EPOCH .venv/bin/python -m build \
   --sdist --wheel --outdir build/release-raw
 .venv/bin/python scripts/normalize_sdist.py \
-  build/release-raw/argos_epistemic-0.2.0rc1.tar.gz \
-  dist/argos_epistemic-0.2.0rc1.tar.gz --epoch EPOCH
-cp build/release-raw/argos_epistemic-0.2.0rc1-py3-none-any.whl dist/
+  build/release-raw/argos_epistemic-0.2.0rc2.tar.gz \
+  dist/argos_epistemic-0.2.0rc2.tar.gz --epoch EPOCH
+cp build/release-raw/argos_epistemic-0.2.0rc2-py3-none-any.whl dist/
 .venv/bin/python -m twine check dist/*
 .venv/bin/python scripts/check_release_artifacts.py \
-  --version 0.2.0rc1 --dist-dir dist
+  --version 0.2.0rc2 --dist-dir dist
 ```
 
 El inspector exige exactamente un wheel y un sdist, verifica metadatos,
@@ -71,6 +71,7 @@ verificar:
 - `importlib.metadata.version("argos-epistemic")`;
 - importación de `argos_epistemic`;
 - demo mínima;
+- `python -m argos_epistemic --help` y `--version` desde fuera del checkout;
 - carga de todos los schemas normativos;
 - verificadores PEP 621 y PEP 508 sobre fixtures controlados.
 
@@ -80,10 +81,15 @@ Importar desde el checkout no demuestra que el wheel sea autosuficiente.
 
 1. fusionar el PR por squash;
 2. repetir gates y construcción sobre el commit fusionado;
-3. crear el tag anotado `v0.2.0rc1` sobre ese commit;
+3. crear el tag anotado `v0.2.0rc2` sobre ese commit;
 4. crear una GitHub Release marcada como prerelease;
 5. adjuntar wheel, sdist y `SHA256SUMS`;
 6. comprobar que los enlaces de instalación descargan los mismos hashes.
+
+Mientras el repositorio sea privado, valida la descarga como colaborador
+autenticado mediante `gh release download`; no describas esa release como
+accesible a usuarios externos. La visibilidad pública o PyPI requieren una
+decisión y gates separados.
 
 La rama se conserva hasta completar la comprobación posterior. PyPI queda fuera
 de este flujo mientras no exista Trusted Publishing y CI operativo; nunca se

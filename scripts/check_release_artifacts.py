@@ -60,6 +60,7 @@ def _wheel(path: Path, *, version: str) -> None:
         _metadata(archive.read(metadata[0]).decode("utf-8"), version=version)
         required = {
             "argos_epistemic/__init__.py",
+            "argos_epistemic/__main__.py",
             "argos_epistemic/schemas/claim-record-v1.schema.json",
             "argos_epistemic/schemas/discovery-inventory-v1.schema.json",
             "argos_epistemic/schemas/evaluation-envelope-v1.schema.json",
@@ -118,10 +119,14 @@ def _sdist(path: Path, *, version: str) -> None:
             f"{prefix}/LICENSE",
             f"{prefix}/README.md",
             f"{prefix}/CHANGELOG.md",
+            f"{prefix}/CONTRIBUTING.md",
+            f"{prefix}/SECURITY.md",
+            f"{prefix}/SUPPORT.md",
             f"{prefix}/pyproject.toml",
             f"{prefix}/docs/api.md",
             f"{prefix}/docs/release.md",
             f"{prefix}/argos_epistemic/__init__.py",
+            f"{prefix}/argos_epistemic/__main__.py",
             f"{prefix}/scripts/check_release_artifacts.py",
             f"{prefix}/scripts/normalize_sdist.py",
         }
