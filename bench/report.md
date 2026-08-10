@@ -38,6 +38,14 @@ calibración de confianza (Brier) queda pendiente.
 | semantic_lifecycle | lexical_topk | 1.0 | 1.0 | 103 | - | - | - |
 | semantic_lifecycle | random_k | 0.667 | 0.667 | 94 | - | - | - |
 
+## Invariante adjudicado de duplicación
+
+La misma raíz y el mismo claim, observados una vez y mediante 100 alias,
+producen métricas bit-idénticas:
+
+- una observación: `{'coverage': 0.3333, 'evidential_coverage': 0.3333, 'retrieval_coverage': 1.0, 'structural_coverage': 0.0, 'coverage_capability': 'probatory', 'complete': False}`;
+- 100 alias: `{'coverage': 0.3333, 'evidential_coverage': 0.3333, 'retrieval_coverage': 1.0, 'structural_coverage': 0.0, 'coverage_capability': 'probatory', 'complete': False}`.
+
 ## Lectura
 - **argos(embed)** debe igualar o superar a los baselines en recall al
   observar *menos* tokens que `full_read` (selección por utilidad).

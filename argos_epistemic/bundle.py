@@ -20,6 +20,16 @@ ENVELOPE_SCHEMA = "argos/evaluation-envelope-v1"
 INVENTORY_SCHEMA = "argos/discovery-inventory-v1"
 CLAIM_SCHEMA = "argos/claim-record-v1"
 RUN_SCHEMA = "argos/run-attestation-v1"
+COVERAGE_PROFILE = "argos/claim-component-coverage-v1"
+DEFAULT_COVERAGE_CONFIGURATION = {
+    "profile": COVERAGE_PROFILE,
+    "parameters": {
+        "corroboration": "1.8",
+        "component_confidence": "max",
+        "claim_aggregation": "sum_components",
+        "aspect_aggregation": "max_claim",
+    },
+}
 SUPPORTED_SCHEMAS = frozenset(
     {MANIFEST_SCHEMA, ENVELOPE_SCHEMA, INVENTORY_SCHEMA, CLAIM_SCHEMA, RUN_SCHEMA}
 )
@@ -64,6 +74,7 @@ def build_manifest(
     discovery_profile: dict[str, Any],
     budget: dict[str, Any],
     independence_class: str,
+    coverage_profile: dict[str, Any] | None = None,
     normalizations: list[str] | None = None,
     degradations: list[str] | None = None,
 ) -> dict[str, Any]:
@@ -73,6 +84,12 @@ def build_manifest(
         "semantic_profile": _require_mapping("semantic_profile", semantic_profile),
         "discovery_profile": _require_mapping("discovery_profile", discovery_profile),
         "budget": _require_mapping("budget", budget),
+        "coverage_profile": _require_mapping(
+            "coverage_profile",
+            DEFAULT_COVERAGE_CONFIGURATION
+            if coverage_profile is None
+            else coverage_profile,
+        ),
         "normalizations": _string_list("normalizations", normalizations),
     }
     document = {

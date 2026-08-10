@@ -106,13 +106,21 @@ def test_no_affordable_action_is_explained():
     by_action = {a["action"]: a for a in completion["next_actions"]}
     budget_action = by_action["increase_budget"]
     assert budget_action["addresses_reason_codes"] == ["no_affordable_actions"]
-    assert budget_action["remaining_blockers"] == ["insufficient_sources", "threshold_not_met"]
+    assert budget_action["remaining_blockers"] == [
+        "coverage_capability_unavailable",
+        "insufficient_sources",
+        "threshold_not_met",
+    ]
     assert budget_action["sufficient_if_successful"] is False
     assert budget_action["capability_required"] == "retrieval_only"
     # Budget alone cannot manufacture proof, so a verifier proposal accompanies it.
     verifier = by_action["enable_probative_verifier"]
     assert verifier["capability_required"] == "probatory_static"
-    assert verifier["addresses_reason_codes"] == ["insufficient_sources", "threshold_not_met"]
+    assert verifier["addresses_reason_codes"] == [
+        "coverage_capability_unavailable",
+        "insufficient_sources",
+        "threshold_not_met",
+    ]
     assert verifier["authorization_required"] is True
 
 

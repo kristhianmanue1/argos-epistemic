@@ -79,17 +79,26 @@ def test_should_stop_when_thresholds_met():
     These artifacts declare their own support and carry no verifier profile,
     execution or target revision, so they are undemonstrated sources. With the
     default ``min_sources_per_aspect=2`` the independence gate refuses
-    completion no matter how high legacy coverage climbs; with a single source
-    required, the thresholds do carry it through.
+    completion; with a single source required, the thresholds carry it through.
     """
     strict = _threshold_report()
-    assert strict["coverage"] >= strict["completion"]["thresholds_met"]
+    assert strict["coverage"] == 0.5
+    assert strict["completion"]["thresholds_met"] is True
     assert strict["complete"] is False
     assert "insufficient_sources" in strict["completion"]["reason_codes"]
 
     relaxed = _threshold_report(min_sources_per_aspect=1)
     assert relaxed["complete"] is True
     assert relaxed["evidence_count"] >= 1
+
+
+@pytest.mark.parametrize("min_sources", [None, "1", True, 0, -1, 1.0])
+def test_invalid_min_sources_cannot_weaken_completion(min_sources):
+    report = _threshold_report(min_sources_per_aspect=min_sources)
+
+    assert report["complete"] is False
+    assert "invalid_min_sources_per_aspect" in report["completion"]["reason_codes"]
+    assert report["source_independence"]["required_sources"] == 2
 
 
 def test_cost_dominance():
@@ -497,10 +506,9 @@ def test_h1_coverage_requires_corroboration_and_is_weighted():
         "rho_risk": 0.0,
     }
     report = analyze_system(system, goal, Budget(tokens_remaining=10000, tool_remaining=10))
-    # alpha has 2 corroborating sources (mass 1.8 / 1.8 -> 1.0); beta has 1 (0.9/1.8 -> 0.5)
-    assert abs(report["aspect_scores"]["alpha"] - 1.0) < 0.02
+    assert abs(report["aspect_scores"]["alpha"] - 0.5) < 0.02
     assert abs(report["aspect_scores"]["beta"] - 0.5) < 0.02
-    assert abs(report["coverage"] - 0.875) < 0.03  # 0.75*1.0 + 0.25*0.5
+    assert abs(report["coverage"] - 0.5) < 0.03
 
 
 def test_h1_single_source_does_not_saturate_coverage():
@@ -1600,13 +1608,8 @@ _SUPPORTING_SYSTEM = {
 }
 
 
-def test_expected_coverage_tracks_headroom_not_a_binary_covered_flag():
-    """Coverage is gradual via aspect_score, so partial support leaves headroom.
-
-    Hand-computed oracle: aspect_score = clamp01(sum(conf) / 1.8). With one
-    0.6 support the aspect sits at 0.3333, so a further support is still
-    worth something; only once the score saturates does the delta vanish.
-    """
+def test_expected_coverage_requires_demonstrable_independence_for_headroom():
+    """A second legacy extraction cannot promise an independent component."""
     no_support = _actions_for(_SUPPORTING_SYSTEM, _calibrated())["core.py"]
     partial = _actions_for(
         _SUPPORTING_SYSTEM, _calibrated(), [_support(0.6, "e1")]
@@ -1616,7 +1619,7 @@ def test_expected_coverage_tracks_headroom_not_a_binary_covered_flag():
     )["core.py"]
 
     assert no_support.expected_delta_coverage > 0.0
-    assert partial.expected_delta_coverage > 0.0, "partial coverage must leave headroom"
+    assert partial.expected_delta_coverage == 0.0
     assert saturated.expected_delta_coverage == 0.0
 
 
@@ -1633,22 +1636,8 @@ def test_duplicate_support_does_not_inflate_expected_coverage():
     assert twice.expected_delta_coverage <= once.expected_delta_coverage + 1e-12
 
 
-def test_legacy_known_unsound_coverage_counts_duplicate_claims_removal_target_pr_f():
-    """LEGACY / KNOWN-UNSOUND compatibility contract. REMOVAL TARGET: PR F.
-
-    This pins current behaviour that is **not correct** and must not be read as
-    a specification. ``compute_residual_risk`` aggregates by claim identity, but
-    ``compute_coverage``/``aspect_score`` still sum over propositions, so three
-    readings of one claim treble the score.
-
-    DESIRED behaviour, to be implemented in PR F: coverage is invariant under
-    duplication of the same normalised claim and the same observed root, i.e.
-    aggregated by claim and independence_group rather than by proposition
-    volume.
-
-    Until then, ``complete`` must never rest on this inflation: the independence
-    gate (PR D) is what keeps duplicates from satisfying corroboration.
-    """
+def test_coverage_is_invariant_under_duplicate_claim_and_root():
+    """F: proposition volume cannot manufacture probative mass."""
     from argos_epistemic.algorithm import compute_coverage, compute_residual_risk
 
     aspects = [{"name": "write", "weight": 1.0}]
@@ -1656,18 +1645,17 @@ def test_legacy_known_unsound_coverage_counts_duplicate_claims_removal_target_pr
     single = [_support(0.6, "e1", claim="same")]
 
     assert compute_coverage(single, aspects) == pytest.approx(0.3333, abs=1e-4)
-    assert compute_coverage(duplicated, aspects) == pytest.approx(1.0, abs=1e-4)
-    # Risk already ignores duplicates; coverage does not. That asymmetry is the defect.
+    assert compute_coverage(duplicated, aspects) == compute_coverage(single, aspects)
     assert compute_residual_risk(duplicated, aspects, {}) == compute_residual_risk(
         single, aspects, {}
     )
 
 
-def test_independent_additional_support_still_has_expected_coverage():
-    independent = _actions_for(
+def test_unstamped_additional_support_does_not_promise_independence():
+    unstamped = _actions_for(
         _SUPPORTING_SYSTEM, _calibrated(), [_support(0.6, "e1", claim="first")]
     )["core.py"]
-    assert independent.expected_delta_coverage > 0.0
+    assert unstamped.expected_delta_coverage == 0.0
 
 
 def test_expected_coverage_is_zero_without_calibration_even_with_headroom():
@@ -1807,6 +1795,8 @@ def test_malformed_declarations_survive_analyze_system_end_to_end(extras):
     "extras",
     [
         {"supports": [{"aspect": "write", "strength": "bad"}]},
+        {"supports": [{"aspect": "write", "strength": "1.0"}]},
+        {"supports": [{"aspect": "write", "strength": True}]},
         {"supports": [{"aspect": "write", "strength": None}]},
         {"supports": [{"aspect": "write", "strength": float("nan")}]},
         {"refutes": "nonsense"},
@@ -1843,7 +1833,9 @@ def test_adversarial_malformed_declarations_fail_closed(extras):
     assert action.expected_delta_risk_reduction == 0.0
 
 
-@pytest.mark.parametrize("relevance", [None, "high", float("nan"), float("inf"), -1.0, 2.0])
+@pytest.mark.parametrize(
+    "relevance", [None, "high", "0.9", True, float("nan"), float("inf"), -1.0, 2.0]
+)
 def test_adversarial_invalid_relevance_is_diagnosed_not_raised(relevance):
     system = {
         "name": "s",
