@@ -47,8 +47,9 @@ capacidades ausentes y los siete gates permanecen verdes.
 Resultado: la fase A–F corrigió admisión, autoridad, independencia,
 verificadores declarativos y cobertura por claims; la consolidación de release
 añade migración, inspección de artefactos e instalación aislada. La prerelease
-`0.2.0rc1` conserva `coverage` como alias compatible antes de estabilizar
-`0.2.0`.
+`0.2.0rc2` añade descubrimiento informativo y rutas accionables de soporte sin
+anticipar la CLI analítica; conserva `coverage` como alias compatible antes de
+estabilizar `0.2.0`.
 
 No incluye portal de documentación, gobernanza multiequipo, catálogo completo
 de ADRs ni automatización de releases.

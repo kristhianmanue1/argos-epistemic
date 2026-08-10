@@ -21,11 +21,16 @@ body:
     id: compatibility
     attributes:
       label: Contratos y compatibilidad
-      description: Indica schemas, autoridad, presupuesto o transporte afectados.
-    validations:
-      required: true
+      description: Indica schemas, autoridad, presupuesto o transporte afectados. Si no lo sabes, escribe "No lo sé".
   - type: textarea
     id: exclusions
     attributes:
       label: Fuera de alcance
       description: Qué no hace falta construir todavía.
+  - type: checkboxes
+    id: security
+    attributes:
+      label: Seguridad y privacidad
+      options:
+        - label: Confirmo que la propuesta no contiene secretos, código privado ni detalles de una vulnerabilidad.
+          required: true

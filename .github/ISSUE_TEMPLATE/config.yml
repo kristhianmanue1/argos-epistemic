@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Documentación de uso y API
+    url: https://github.com/kristhianmanue1/argos-epistemic#mapa-de-documentación
+    about: Consulta instalación, uso mínimo, contratos y límites antes de reportar.
   - name: Reportar una vulnerabilidad
-    url: https://github.com/kristhianmanue1/argos-epistemic/security/advisories/new
-    about: Usa un reporte privado para problemas de seguridad.
+    url: https://github.com/kristhianmanue1/argos-epistemic/blob/main/SECURITY.md
+    about: No publiques detalles; sigue el procedimiento vigente del repositorio privado.

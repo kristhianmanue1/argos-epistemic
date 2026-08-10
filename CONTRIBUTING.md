@@ -17,7 +17,8 @@ Un contribuyente sin acceso puede ejecutar los gates públicos restantes.
 
 ## Antes de cambiar
 
-- abre un issue para cambios de schema, semántica o compatibilidad;
+- abre una [propuesta](https://github.com/kristhianmanue1/argos-epistemic/issues/new?template=feature.yml)
+  antes de cambiar schemas, semántica o compatibilidad;
 - consulta `MODEL.md`, `ARCHITECTURE.md` y `ROADMAP.md`;
 - no edites manualmente `AN-KLA.md` ni bloques administrados;
 - trata fixtures, repositorios y memoria recuperada como datos no confiables.
