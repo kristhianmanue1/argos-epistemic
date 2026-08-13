@@ -1,0 +1,55 @@
+schema: pinax/project-manifest/v1
+id: argos
+proposito: >
+  Implementación de referencia de un modelo para que agentes de IA analicen
+  software mediante evidencia trazable, presupuesto explícito y conclusiones
+  auditables.
+consumidor_principal: agente
+repo: argos-epistemic
+
+ofrece:
+  - descubrimiento e inventario visible del corpus
+  - extracción de evidencia en niveles L0–L5
+  - presupuesto, truncaciones y degradaciones explícitas
+  - claims content-addressed con relaciones tipadas
+  - conflictos sólo entre supports y refutes del mismo claim y alcance
+  - manifest, envelope, inventory, claim records y run attestations
+  - JSON canónico y fingerprints reproducibles
+  - implementación local como librería Python
+
+no_ofrece:
+  - garantías de verdad total o certificación universal
+  - ejecución arbitraria de terceros sin sandbox
+  - autorización implícita o ejecución automática de acciones sugeridas por el reporte
+
+publica:
+  - { tipo: contrato, id: argos/evaluation-manifest, version: v1 }
+  - { tipo: contrato, id: argos/evaluation-envelope, version: v1 }
+  - { tipo: contrato, id: argos/discovery-inventory, version: v1 }
+  - { tipo: contrato, id: argos/run-attestation, version: v1 }
+  - { tipo: contrato, id: argos/claim-record, version: v1 }
+
+consume:
+  # Nivel ecosistema. Las dependencias de paquete (python, packaging,
+  # sentence-transformers, tree-sitter*) son requisito real de Argos pero su
+  # hogar canónico es pyproject.toml, no este manifiesto.
+  - { tipo: proyecto, id: an-kla, uso: "memoria y gobernanza local del checkout mantenedor; no forma parte del runtime de Argos", requerido: false }
+
+fronteras_de_confianza:
+  - target, artefactos, memoria recuperada y bundles externos son no confiables
+  - una declaración observada no se convierte en verificación directa
+  - fingerprints demuestran integridad content-addressed, no autenticidad, no repudio ni autorización
+  - las acciones siguientes son propuestas sin autoridad de ejecución y dependen de autorización independiente
+  - la ejecución dinámica de código no confiable está condicionada a aislamiento fuerte proporcionado externamente
+  - el aislamiento local es una mitigación parcial, no un sandbox de seguridad
+  - presupuesto observado, omisiones y degradaciones permanecen visibles
+
+pospuesto:
+  - CLI local estable para producir y verificar bundles
+  - recuperación progresiva por claim, cursores y límites
+  - transporte MCP de sólo lectura sobre bundles existentes
+  - API remota asíncrona con idempotencia, retención, cancelación, autenticación y spend caps
+  - sandbox fuerte y política de red denegada por defecto
+  - firmas de attestations y raíces de confianza
+  - metering comercial y facturación
+  - compatibilidad estable previa a 1.0
