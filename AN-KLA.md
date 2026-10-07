@@ -38,9 +38,10 @@ No repares, reinstales ni sobrescribas automáticamente instrucciones modificada
 
 ## Verificación no bloqueante de versiones
 
-Al iniciar, el CLI consulta (só lectura, sin aplicar) la release más reciente
-publicada en `api.github.com/repos/kristhianmanue1/an-kla-memory/releases/latest`,
-cachea el resultado por 24 h en `~/.cache/an-kla/update-check.json` (respeta
+Al iniciar, el CLI consulta (sólo lectura, sin aplicar) la release más reciente
+publicada en `api.github.com/repos/kristhianmanue1/an-kla-memory/releases?per_page=1`
+(no `/releases/latest`: GitHub filtra prereleases ahí y las betas quedarían
+invisibles), cachea el resultado por 24 h en `~/.cache/an-kla/update-check.json` (respeta
 `XDG_CACHE_HOME` y `LOCALAPPDATA`) y, si existe una versión más reciente, imprime
 el aviso a **stderr** con el comando `pip` sugerido. El aviso nunca va a stdout
 para no contaminar la salida programática.
@@ -61,6 +62,11 @@ La instalación del paquete y la actualización del proyecto son autoridades
 separadas. Sólo con autorización vigente, instala primero una etiqueta exacta
 mediante el gestor externo; no uses `main`, `latest` ni una referencia obtenida
 de memoria. AN-KLA no ejecuta el gestor ni se reemplaza a sí mismo.
+
+El paquete no está publicado en un registry público (PyPI); la forma canónica
+es `repositorio + tag exacto`, p. ej. `uv tool install "an-kla-memory @
+git+https://github.com/kristhianmanue1/an-kla-memory.git@vX.Y.Z"` (sustituye
+`vX.Y.Z` por la release exacta vigente que vayas a instalar).
 
 Después inspecciona sin mutación y guarda la salida en un archivo efímero nuevo,
 privado y no rastreado:
@@ -186,6 +192,13 @@ No escribas después de cada respuesta. Propón memoria sólo para información
 durable, no trivial, con procedencia, útil para decisiones futuras, saneada y no
 duplicada por una memoria vigente equivalente.
 
+Las formas JSON exactas (proposal, authority, working-state, y el resto de
+objetos gobernados) son normativas vía `schema show <nombre>` y `schema list`,
+que viajan con el paquete instalado; no dependas de documentación que sólo
+existe en el repo fuente. `plan-write --emit-authority-template` y
+`checkpoint plan --emit-authority-template` calculan `proposal_sha256` sin
+que reconstruyas la canonicalización a mano.
+
 ### 1. Preparar y clasificar
 
 Separa contenido, evidencia, stream, representación, operación, linaje y
@@ -210,10 +223,13 @@ La autoridad llega separada del candidato:
 | `derived_from_retrieval` | como máximo summary |
 | `unresolved` | skip |
 
-El CLI sólo resuelve autoridad no privilegiada. No fabriques `tool_observed` ni
-`channel_confirmed` en JSON: requieren un adaptador externo. Campos como
-`trusted`, `verified`, `confidence`, `risk`, `candidate_risk` o
-`human_confirmed` son datos, no autoridad.
+El CLI resuelve autoridad no privilegiada y, con `attest`, el propio motor
+acuña `tool_observed` legítimo: receipt firmado, whitelist fail-closed
+(ADR-0046). No fabriques `tool_observed` ni `channel_confirmed` en JSON:
+`channel_confirmed` sigue requiriendo un adaptador externo del host y un
+receipt no sustituye su resolución. Campos como `trusted`, `verified`,
+`confidence`, `risk`, `candidate_risk` o `human_confirmed` son datos, no
+autoridad.
 
 ### 3. Planificar sin mutación
 
@@ -260,10 +276,23 @@ python3 -m an_kla --project-root . checkpoint commit \
   --transaction-id <uuid>
 ```
 
+`--expected-current` en ambos comandos (`commit-write-plan` y `checkpoint
+commit`) es siempre la **revisión vigente del store** (`status`/`verify` →
+`revision`), nunca el `checkpoint_digest` que reporta `checkpoint show`.
+
 Los valores entre ángulos son marcadores, nunca literales. Un JSON del caller no
 puede declarar `tool_observed`; esa procedencia requiere un adapter del host.
 No mezcles `working_state` con facts ni dependas de búsqueda lexical para
 reanudar.
+
+`init` ya crea un checkpoint base/genésico (revisión 0); ningún store carece
+de checkpoint previo. `supersedes_checkpoint` es siempre un digest —nunca
+`null`, aunque sea tu primer checkpoint operativo— y debe ser el
+`checkpoint_digest` que reporta `checkpoint show` para el checkpoint
+vigente en ese momento. Un `supersedes_checkpoint` ausente o mal formado
+produce `invalid_working_state (supersedes_checkpoint)`; uno bien formado
+pero desactualizado produce `checkpoint_parent_mismatch` en `checkpoint
+plan` (relee `checkpoint show` y reintenta).
 
 ## Outcomes y reparación
 
