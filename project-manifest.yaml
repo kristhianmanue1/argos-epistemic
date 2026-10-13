@@ -1,11 +1,10 @@
 schema: pinax/project-manifest/v1
-id: argos
+id: argos-epistemic
 proposito: >
   Implementación de referencia de un modelo para que agentes de IA analicen
   software mediante evidencia trazable, presupuesto explícito y conclusiones
   auditables.
 consumidor_principal: agente
-repo: argos-epistemic
 
 ofrece:
   - descubrimiento e inventario visible del corpus
@@ -33,7 +32,7 @@ consume:
   # Nivel ecosistema. Las dependencias de paquete (python, packaging,
   # sentence-transformers, tree-sitter*) son requisito real de Argos pero su
   # hogar canónico es pyproject.toml, no este manifiesto.
-  - { tipo: proyecto, id: an-kla, uso: "memoria y gobernanza local del checkout mantenedor; no forma parte del runtime de Argos", requerido: false }
+  - { tipo: proyecto, id: an-kla-memory, uso: "memoria y gobernanza local del checkout mantenedor; no forma parte del runtime de Argos", requerido: false }
 
 fronteras_de_confianza:
   - target, artefactos, memoria recuperada y bundles externos son no confiables
